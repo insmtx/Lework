@@ -263,3 +263,64 @@ describe("project aggregation", () => {
 		expect(JSON.parse(String(init.body))).toEqual({ value: "/w/inbox" });
 	});
 });
+
+describe("认证、认领与移除节点", () => {
+	it("login 提交 email/password 并返回会话令牌", async () => {
+		stubFetch(
+			new Response(JSON.stringify({ user: { id: "u1", email: "a@example.com" }, token: "sess" }), {
+				status: 200,
+			}),
+		);
+		const api = createApiClient({ baseUrl: "http://box:8787" });
+		const body = await api.login("a@example.com", "password123");
+
+		expect(String(fetchMock.mock.calls[0]?.[0])).toBe("http://box:8787/api/auth/login");
+		const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+		expect(init.method).toBe("POST");
+		expect(JSON.parse(String(init.body))).toEqual({
+			email: "a@example.com",
+			password: "password123",
+		});
+		expect(body.token).toBe("sess");
+	});
+
+	it("getAuthMethods 不带鉴权头", async () => {
+		stubFetch(
+			new Response(JSON.stringify({ initialized: true, registration_mode: "open" }), {
+				status: 200,
+			}),
+		);
+		await createApiClient({ baseUrl: "http://box:8787" }).getAuthMethods();
+		const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+		expect(init.headers).not.toMatchObject({ Authorization: expect.anything() });
+	});
+
+	it("claimPreview / claimConfirm 使用 /api/claim/{code}", async () => {
+		// 两次请求各要一个 Response：body 只能读一次，复用同一个实例会报
+		// "Body has already been read"。
+		stubFetch(() => new Response(JSON.stringify({ code: "AB234", node_name: "box" }), { status: 200 }));
+		const api = createApiClient({ baseUrl: "http://box:8787" });
+		await api.claimPreview("ab234");
+		expect(String(fetchMock.mock.calls[0]?.[0])).toBe("http://box:8787/api/claim/ab234");
+		await api.claimConfirm("ab234");
+		const init = fetchMock.mock.calls[1]?.[1] as RequestInit;
+		expect(init.method).toBe("POST");
+	});
+
+	it("deleteNode 发 DELETE 并接受 204", async () => {
+		stubFetch(new Response(null, { status: 204 }));
+		await expect(
+			createApiClient({ baseUrl: "http://box:8787" }).deleteNode("node_1"),
+		).resolves.toBeNull();
+		expect(String(fetchMock.mock.calls[0]?.[0])).toBe("http://box:8787/api/nodes/node_1");
+		expect((fetchMock.mock.calls[0]?.[1] as RequestInit).method).toBe("DELETE");
+	});
+
+	it("401 触发 onUnauthorized 钩子并照常抛错", async () => {
+		stubFetch(new Response(JSON.stringify({ code: "unauthorized" }), { status: 401 }));
+		const onUnauthorized = vi.fn();
+		const api = createApiClient({ baseUrl: "http://box:8787", onUnauthorized });
+		await expect(api.listNodes()).rejects.toMatchObject({ status: 401 });
+		expect(onUnauthorized).toHaveBeenCalledTimes(1);
+	});
+});

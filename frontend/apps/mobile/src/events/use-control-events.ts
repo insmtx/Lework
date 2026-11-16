@@ -49,7 +49,7 @@ export function useControlEvents(
 	// 直接依赖它会让流在无关改动时重建。过滤条件同理取原始值，
 	// 调用方每次渲染新建的 filter 对象不应触发重连。
 	const baseUrl = settings?.baseUrl;
-	const token = settings?.token;
+	const token = settings?.sessionToken;
 	const filterNodeID = filter?.nodeID;
 	const filterSessionID = filter?.sessionID;
 	const filterLive = filter?.live;

@@ -45,8 +45,8 @@ export default function NotificationsScreen() {
 	};
 
 	const toggleNotifications = async (enabled: boolean) => {
-		if (!settings) {
-			note("先保存服务器设置，再开启推送。", true);
+		if (!settings?.sessionToken) {
+			note("先登录账号，再开启推送。", true);
 			return;
 		}
 		setBusy(true);
@@ -86,7 +86,9 @@ export default function NotificationsScreen() {
 			<SettingsSection
 				title="推送"
 				hint={
-					settings ? "审批请求到达时提醒，关闭后不再推送。" : "先保存服务器设置，推送才能登记。"
+					settings?.sessionToken
+						? "审批请求到达时提醒，关闭后不再推送。"
+						: "先登录账号，推送才能登记。"
 				}
 			>
 				<ToggleRow
@@ -94,7 +96,7 @@ export default function NotificationsScreen() {
 					hint="会话需要审批时提醒。"
 					value={notifications}
 					onValueChange={(value) => void toggleNotifications(value)}
-					disabled={busy || loading || !settings}
+					disabled={busy || loading || !settings?.sessionToken}
 				/>
 			</SettingsSection>
 

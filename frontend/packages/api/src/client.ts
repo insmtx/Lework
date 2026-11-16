@@ -1,4 +1,8 @@
 import type {
+	AuthMethods,
+	AuthResponse,
+	AuthUser,
+	ClaimPreview,
 	Device,
 	DeviceRegistration,
 	FileDiff,
@@ -27,6 +31,11 @@ import type {
 export interface RequestContext {
 	baseUrl?: string;
 	headers?: Record<string, string> | (() => Record<string, string>);
+	/**
+	 * 401 钩子：会话过期时调用方需要清本地登录态并回登录页。
+	 * 放在请求层而不是每个调用点，是因为任何一个接口都可能先撞上过期。
+	 */
+	onUnauthorized?: (error: ApiError) => void;
 }
 
 export class ApiError extends Error {
@@ -42,6 +51,15 @@ export class ApiError extends Error {
 }
 
 export interface ApiClient {
+	getAuthMethods(): Promise<AuthMethods>;
+	login(email: string, password: string): Promise<AuthResponse>;
+	register(email: string, password: string): Promise<AuthResponse>;
+	logout(): Promise<unknown>;
+	changePassword(currentPassword: string, newPassword: string): Promise<unknown>;
+	me(): Promise<{ kind: string; role: string; user: AuthUser | null }>;
+	claimPreview(code: string): Promise<ClaimPreview>;
+	claimConfirm(code: string): Promise<NodeView>;
+	deleteNode(node: string): Promise<unknown>;
 	listNodes(): Promise<NodeView[]>;
 	getNodeHealth(node: string): Promise<NodeHealth>;
 	startOpenCode(node: string): Promise<unknown>;
@@ -120,7 +138,9 @@ export function createApiClient(ctx: RequestContext = {}): ApiClient {
 			} catch {
 				// Keep the status-derived message when the body is not JSON.
 			}
-			throw new ApiError(response.status, code, message);
+			const error = new ApiError(response.status, code, message);
+			if (response.status === 401) ctx.onUnauthorized?.(error);
+			throw error;
 		}
 		if (response.status === 204) return null as T;
 		const text = await response.text();
@@ -128,6 +148,38 @@ export function createApiClient(ctx: RequestContext = {}): ApiClient {
 	}
 
 	return {
+		getAuthMethods: () => request<AuthMethods>("/api/auth/methods"),
+
+		login: (email, password) =>
+			request<AuthResponse>("/api/auth/login", {
+				method: "POST",
+				body: JSON.stringify({ email, password }),
+			}),
+
+		register: (email, password) =>
+			request<AuthResponse>("/api/auth/register", {
+				method: "POST",
+				body: JSON.stringify({ email, password }),
+			}),
+
+		logout: () => request<unknown>("/api/auth/session", { method: "DELETE" }),
+
+		changePassword: (currentPassword, newPassword) =>
+			request<unknown>("/api/auth/password", {
+				method: "POST",
+				body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+			}),
+
+		me: () => request<{ kind: string; role: string; user: AuthUser | null }>("/api/me"),
+
+		claimPreview: (code) => request<ClaimPreview>(`/api/claim/${encodeURIComponent(code)}`),
+
+		claimConfirm: (code) =>
+			request<NodeView>(`/api/claim/${encodeURIComponent(code)}`, { method: "POST" }),
+
+		deleteNode: (node) =>
+			request<unknown>(`/api/nodes/${encodeURIComponent(node)}`, { method: "DELETE" }),
+
 		listNodes: () => request<NodeView[]>("/api/nodes"),
 
 		getNodeHealth: async (node) => {

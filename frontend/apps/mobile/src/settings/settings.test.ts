@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	SETTINGS_KEY,
 	createSettingsStore,
 	normalizeBaseUrl,
 	type KeyValueStore,
@@ -39,7 +40,8 @@ describe("normalizeBaseUrl", () => {
 describe("createSettingsStore", () => {
 	const settings: Settings = {
 		baseUrl: "http://box:8787",
-		token: "secret",
+		email: "a@example.com",
+		sessionToken: "secret",
 		notifications: true,
 	};
 
@@ -55,6 +57,39 @@ describe("createSettingsStore", () => {
 		const kv = fakeStore();
 		await kv.setItem("lework.settings.v1", "{not json");
 		await expect(createSettingsStore(kv).load()).resolves.toBeNull();
+	});
+
+	it("旧设置（baseUrl + token）迁移为未登录状态", async () => {
+		const kv = fakeStore();
+		await kv.setItem(
+			SETTINGS_KEY,
+			JSON.stringify({ baseUrl: "http://box:8787", token: "admin-token", notifications: true }),
+		);
+		const loaded = await createSettingsStore(kv).load();
+		expect(loaded).toEqual({
+			baseUrl: "http://box:8787",
+			email: "",
+			sessionToken: "",
+			notifications: true,
+			deviceID: undefined,
+		});
+		// 迁移必须落盘：部署级令牌不能继续留在手机存储里。
+		const raw = kv.data.get(SETTINGS_KEY) ?? "";
+		expect(raw).not.toContain("admin-token");
+		expect(JSON.parse(raw)).toEqual(loaded);
+	});
+
+	it("保存并读回登录态", async () => {
+		const kv = fakeStore();
+		const store = createSettingsStore(kv);
+		const settings: Settings = {
+			baseUrl: "http://box:8787",
+			email: "a@example.com",
+			sessionToken: "sess",
+			notifications: true,
+		};
+		await store.save(settings);
+		expect(await store.load()).toEqual(settings);
 	});
 
 	it("clear 后为空", async () => {

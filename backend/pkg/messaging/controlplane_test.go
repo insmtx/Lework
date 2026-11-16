@@ -197,3 +197,21 @@ func subjectMatches(pattern, subject string) bool {
 	}
 	return len(patternTokens) == len(subjectTokens)
 }
+
+func TestControlPlaneNodeCloseSubject(t *testing.T) {
+	subject, err := ControlPlaneNodeCloseSubject("node_abc")
+	if err != nil || subject != "cp.node.node_abc.close" {
+		t.Fatalf("subject = %q, err = %v", subject, err)
+	}
+	// sanitizeSubjectToken 的既有契约是「非法字符替换成下划线」而不是报错：
+	// 关键是不能让点号 / 通配符伪造出别的 subject。空 ID 才是错误。
+	if got, err := ControlPlaneNodeCloseSubject("bad id"); err != nil || got != "cp.node.bad_id.close" {
+		t.Fatalf("sanitized subject = %q, err = %v", got, err)
+	}
+	if _, err := ControlPlaneNodeCloseSubject("   "); err == nil {
+		t.Fatal("empty node id must be rejected")
+	}
+	if got := ControlPlaneNodeCloseWildcard(); got != "cp.node.*.close" {
+		t.Fatalf("wildcard = %q", got)
+	}
+}

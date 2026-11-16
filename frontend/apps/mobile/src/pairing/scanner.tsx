@@ -13,7 +13,7 @@ export interface PairScannerProps {
 }
 
 /**
- * PairScanner 用相机扫控制面打印的配对二维码。
+ * PairScanner 用相机扫电脑上 lework agent 打印的配对二维码。
  *
  * 只在识别出合法链接时回调一次：相机每帧都会回调，必须用 ref 去重，
  * 否则一次扫描会连续触发多次连接。识别失败不解码、不关闭，让用户重扫。
@@ -27,7 +27,7 @@ export interface PairScannerProps {
 function explainScanFailure(data: string, scanError: unknown): string {
 	const message = scanError instanceof Error ? scanError.message : "二维码无法识别";
 	if (/^exps?:\/\//i.test(data.trim()) && !data.includes("?")) {
-		return "这是 Expo 开发服务器的二维码；请扫控制面启动时打印的那一个（二维码下方带 token 的链接）";
+		return "这是 Expo 开发服务器的二维码；请扫 lework agent 打印的那一个（二维码下方带配对码的链接）";
 	}
 	return message;
 }
@@ -100,7 +100,7 @@ export function PairScanner({ visible, onClose, onScanned }: PairScannerProps) {
 				)}
 
 				<View style={styles.hintWrap} pointerEvents="none">
-					<Text style={styles.hint}>对准控制面启动时打印的二维码</Text>
+					<Text style={styles.hint}>对准 lework agent 打印的二维码</Text>
 					{error ? <Text style={styles.error}>{error}</Text> : null}
 					{raw ? (
 						<Text style={styles.raw} selectable numberOfLines={4}>

@@ -69,6 +69,9 @@ type API struct {
 	// loginAttempts 是登录失败限流：按「规范化邮箱 + 来源 IP」计数，同样只在
 	// 进程内存里，多实例部署各自持有预算。
 	loginAttempts *claimAttemptLimiter
+	// registerAttempts 是按来源 IP 的注册限流。默认开放注册后，注册端点成为
+	// 公开写接口，必须有与登录同形的预算，否则一个脚本就能把 users 表灌满。
+	registerAttempts *claimAttemptLimiter
 	// newClaimCode 生成认领码。生产指向 authn.NewShortCode；测试可替换成
 	// 确定性序列，从而稳定覆盖撞码重试（随机码空间无法构造可复现的碰撞）。
 	newClaimCode func(length int) (string, error)
@@ -118,6 +121,7 @@ func New(
 		claimCfg:         claimCfg,
 		claimAttempts:    newClaimAttemptLimiter(claimAttemptsPerAccount, claimAttemptWindowSize),
 		loginAttempts:    newClaimAttemptLimiter(loginAttemptsPerIdentity, loginAttemptWindow),
+		registerAttempts: newClaimAttemptLimiter(registerAttemptsPerIP, time.Minute),
 		newClaimCode:     authn.NewShortCode,
 		requestTimeout:   requestTimeout,
 		heartbeatTimeout: heartbeatTimeout,
@@ -139,9 +143,10 @@ func (a *API) nodeConnected(rec store.Node) bool {
 // Register 把全部浏览器端点注册到 mux。方法与路径由 ServeMux 模式约束，
 // 未声明的方法会落到静态资源处理器（通常得到 404，而不是 401）。
 func (a *API) Register(mux *http.ServeMux) {
-	mux.HandleFunc("POST /api/auth/bootstrap", a.handleBootstrap)
+	mux.HandleFunc("GET /api/auth/methods", a.handleAuthMethods)
 	mux.HandleFunc("POST /api/auth/login", a.handleLogin)
 	mux.HandleFunc("POST /api/auth/register", a.handleRegister)
+	mux.HandleFunc("POST /api/auth/password", a.handleChangePassword)
 	mux.HandleFunc("POST /api/auth/logout", a.handleLogout)
 	// 设计 §8 用 DELETE /api/auth/session 描述登出；任务书与前端使用
 	// POST /api/auth/logout。两个路径指向同一 handler，避免文档与实现漂移时
@@ -159,6 +164,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/claim/{code}", a.handlePreviewClaim)
 	mux.HandleFunc("POST /api/claim/{code}", a.handleClaimCode)
 	a.nodeRoute(mux, "GET /api/nodes/{id}", a.handleGetNode)
+	a.nodeRoute(mux, "DELETE /api/nodes/{id}", a.handleDeleteNode)
 	a.nodeRoute(mux, "GET /api/nodes/{id}/health", a.handleNodeHealth)
 	a.nodeRoute(mux, "POST /api/nodes/{id}/opencode/start", a.handleOpenCodeStart)
 	a.nodeRoute(mux, "POST /api/nodes/{id}/opencode/restart", a.handleOpenCodeRestart)

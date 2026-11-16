@@ -428,7 +428,13 @@ func (g *Gateway) servePendingPair(
 	// 先接管这条 claim 的当前连接，再订阅通知：旧连接即使还半开着，也不能
 	// 在下面任何一步抢到投递权。
 	g.registerPendingConn(claim.ID, ws)
-	defer g.unregisterPendingConn(claim.ID, ws)
+	defer func() {
+		// 只有当前连接仍然属于自己时才作废：新连接已经接管同一个 claim 时，
+		// 旧连接退出不能把新码一起废掉（重连复用同一 pair_key 是核心契约）。
+		if g.unregisterPendingConn(claim.ID, ws) {
+			g.expireIfPending(claim.ID)
+		}
+	}()
 
 	subject, err := messaging.ControlPlanePairSubject(claim.ID)
 	if err != nil {
@@ -546,12 +552,28 @@ func (g *Gateway) registerPendingConn(claimID string, ws *websocket.Conn) {
 }
 
 // unregisterPendingConn 只在当前指针仍是 ws 时删除，避免旧连接清掉新连接。
-func (g *Gateway) unregisterPendingConn(claimID string, ws *websocket.Conn) {
+// 返回是否确实删除了当前连接：调用方据此决定要不要作废认领码。
+func (g *Gateway) unregisterPendingConn(claimID string, ws *websocket.Conn) bool {
 	g.pendingMu.Lock()
 	defer g.pendingMu.Unlock()
 
-	if g.pendingConns[claimID] == ws {
-		delete(g.pendingConns, claimID)
+	if g.pendingConns[claimID] != ws {
+		return false
+	}
+	delete(g.pendingConns, claimID)
+	return true
+}
+
+// expireIfPending 在待定连接断开后作废它那一张码。
+//
+// 「码有效」的语义必须是「现在真的有一台机器在等」，否则用户确认后会得到
+// 一个永远离线的节点。存储层只更新 pending 行，因此与认领成功路径天然
+// 互不干扰。
+func (g *Gateway) expireIfPending(claimID string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := g.store.ExpirePendingClaim(ctx, claimID); err != nil {
+		logs.Warnf("agentgw: expire pending claim %q: %v", claimID, err)
 	}
 }
 

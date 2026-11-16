@@ -2,6 +2,7 @@ import { router } from "expo-router";
 
 import { SettingsMenuCard, SettingsMenuRow, SettingsPage } from "../../src/settings/components";
 import {
+	describeAccount,
 	describeAppearance,
 	describeProcess,
 	describeReminder,
@@ -25,6 +26,11 @@ export default function SettingsIndexScreen() {
 	return (
 		<SettingsPage>
 			<SettingsMenuCard>
+				<SettingsMenuRow
+					label="账号"
+					value={describeAccount(settings?.email)}
+					onPress={() => router.push(settings?.sessionToken ? "/settings/account" : "/login")}
+				/>
 				<SettingsMenuRow
 					label="界面"
 					value={describeAppearance(preferences)}

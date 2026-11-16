@@ -3,6 +3,8 @@ package api
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -17,10 +19,6 @@ import (
 const (
 	// testLoginPassword 满足创建账号时的最小长度，避免登录用例依赖灰色地带。
 	testLoginPassword = "correct-horse-battery"
-
-	// testInviteCode 是邀请码明文；库里只保存它的哈希，测试用它证明
-	// 邀请码可以消费一次、不能重放。
-	testInviteCode = "invite-code-for-tests"
 )
 
 // authBody 是登录、注册与初始化的响应体形状，测试按线上格式断言，
@@ -82,18 +80,6 @@ func createTestUser(t *testing.T, env *testEnv, email, password, role, status st
 		t.Fatalf("create user %q: %v", email, err)
 	}
 	return user
-}
-
-// createTestInvite 写一条仍有效的邀请码，返回明文供请求体使用。
-func createTestInvite(t *testing.T, env *testEnv, code string, expiresAt time.Time) {
-	t.Helper()
-
-	if _, err := env.store.CreateInvite(context.Background(), store.Invite{
-		CodeHash:  authn.HashToken(code),
-		ExpiresAt: expiresAt,
-	}); err != nil {
-		t.Fatalf("create invite: %v", err)
-	}
 }
 
 // resolvePrincipal 按生产顺序解析一次请求，模拟中间件交给 handler 的身份。
@@ -258,71 +244,52 @@ func TestLoginSuccessReleasesAttemptBudget(t *testing.T) {
 	requireStatus(t, env.do(http.MethodPost, "/api/auth/login", wrong), http.StatusUnauthorized)
 }
 
-// TestBootstrapOnlyWorksWhenNoUsers 是任务书给出的验收用例：初始化只能用
-// enrollment token 做一次，之后必须 409。
-func TestBootstrapOnlyWorksWhenNoUsers(t *testing.T) {
-	env := newTestEnv(t, time.Second)
-	body := `{"token":"test-enrollment-token","email":"root@example.com","password":"secret-password"}`
-
-	first := env.do(http.MethodPost, "/api/auth/bootstrap", body)
-	requireStatus(t, first, http.StatusOK)
-	created := decodeBody[authBody](t, first)
-	if created.User == nil || created.User.Role != "admin" || created.User.Status != "active" {
-		t.Fatalf("bootstrap user = %+v, want an active admin", created.User)
+func TestAuthMethodsPublicAndMinimal(t *testing.T) {
+	env := newTestEnvWithAuth(t, time.Second, AuthConfig{SessionTTL: time.Hour, RegistrationMode: "open"})
+	rec := env.doNoPrincipal(http.MethodGet, "/api/auth/methods", "") // 不带任何凭据
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
 	}
-	if created.User.Email != "root@example.com" {
-		t.Fatalf("bootstrap email = %q", created.User.Email)
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
 	}
-
-	second := env.do(http.MethodPost, "/api/auth/bootstrap", body)
-	requireStatus(t, second, http.StatusConflict)
-	if cookie := sessionCookieFrom(t, second); cookie != nil {
-		t.Fatal("second bootstrap must not issue a session")
+	if len(body) != 2 {
+		t.Fatalf("body = %v, want exactly initialized and registration_mode", body)
 	}
-
-	// 已初始化时即使换一个合法令牌也只能得到 409，不能造出第二个管理员。
-	wrong := env.do(http.MethodPost, "/api/auth/bootstrap",
-		`{"token":"another-token","email":"other@example.com","password":"secret-password"}`)
-	requireStatus(t, wrong, http.StatusConflict)
-}
-
-// TestBootstrapRejectsWrongTokenWithoutLeaking 校验错误令牌的固定响应体，
-// 既不带出提交值，也不带出真实令牌。
-func TestBootstrapRejectsWrongTokenWithoutLeaking(t *testing.T) {
-	env := newTestEnv(t, time.Second)
-
-	rec := env.do(http.MethodPost, "/api/auth/bootstrap",
-		`{"token":"guess-token","email":"root@example.com","password":"secret-password"}`)
-	requireErrorCode(t, rec, http.StatusUnauthorized, "invalid_token")
-	if strings.Contains(rec.Body.String(), "guess-token") || strings.Contains(rec.Body.String(), "test-enrollment-token") {
-		t.Fatalf("bootstrap error leaked a token: %s", rec.Body.String())
+	if body["initialized"] != false {
+		t.Fatalf("initialized = %v, want false on an empty store", body["initialized"])
 	}
-
-	count, err := env.store.CountUsers(context.Background())
-	if err != nil || count != 0 {
-		t.Fatalf("CountUsers = %d, %v; want 0 after a rejected bootstrap", count, err)
+	if body["registration_mode"] != "open" {
+		t.Fatalf("registration_mode = %v, want open", body["registration_mode"])
 	}
 }
 
-// TestBootstrapValidatesInput 校验邮箱与密码规则；校验失败不能落库。
-func TestBootstrapValidatesInput(t *testing.T) {
-	env := newTestEnv(t, time.Second)
-
-	blankEmail := env.do(http.MethodPost, "/api/auth/bootstrap",
-		`{"token":"test-enrollment-token","email":" ","password":"secret-password"}`)
-	requireErrorCode(t, blankEmail, http.StatusBadRequest, "invalid_request")
-
-	shortPassword := env.do(http.MethodPost, "/api/auth/bootstrap",
-		`{"token":"test-enrollment-token","email":"root@example.com","password":"short"}`)
-	requireErrorCode(t, shortPassword, http.StatusBadRequest, "invalid_request")
-
-	count, err := env.store.CountUsers(context.Background())
-	if err != nil || count != 0 {
-		t.Fatalf("CountUsers = %d, %v; want 0 after rejected input", count, err)
+func TestAuthMethodsInitializedAfterUserCreated(t *testing.T) {
+	env := newTestEnvWithAuth(t, time.Second, AuthConfig{SessionTTL: time.Hour, RegistrationMode: "closed"})
+	createTestUser(t, env, "a@example.com", testLoginPassword, "user", "active")
+	rec := env.doNoPrincipal(http.MethodGet, "/api/auth/methods", "")
+	var body struct {
+		Initialized      bool   `json:"initialized"`
+		RegistrationMode string `json:"registration_mode"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !body.Initialized || body.RegistrationMode != "closed" {
+		t.Fatalf("body = %+v, want initialized=true mode=closed", body)
 	}
 }
 
-// TestRegisterModes 覆盖 invite / open / closed 与未知模式的注册策略。
+func TestBootstrapEndpointRemoved(t *testing.T) {
+	env := newTestEnvWithAuth(t, time.Second, AuthConfig{SessionTTL: time.Hour, RegistrationMode: "open"})
+	if rec := env.do(http.MethodPost, "/api/auth/bootstrap",
+		`{"token":"x","email":"a","password":"password123"}`); rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+}
+
+// TestRegisterModes 覆盖 open / closed 与未知模式的注册策略。
 func TestRegisterModes(t *testing.T) {
 	t.Run("closed", func(t *testing.T) {
 		env := newTestEnvWithAuth(t, time.Second, AuthConfig{SessionTTL: time.Hour, RegistrationMode: "closed"})
@@ -332,37 +299,11 @@ func TestRegisterModes(t *testing.T) {
 		requireErrorCode(t, rec, http.StatusForbidden, "registration_closed")
 	})
 
-	t.Run("invite requires a code", func(t *testing.T) {
-		env := newTestEnv(t, time.Second)
+	t.Run("open registers once and issues a session", func(t *testing.T) {
+		env := newTestEnvWithAuth(t, time.Second, AuthConfig{SessionTTL: time.Hour, RegistrationMode: "open"})
 
 		rec := env.do(http.MethodPost, "/api/auth/register",
-			`{"email":"new@example.com","password":"secret-password"}`)
-		requireErrorCode(t, rec, http.StatusForbidden, "invalid_invite")
-	})
-
-	t.Run("invite rejects unknown code", func(t *testing.T) {
-		env := newTestEnv(t, time.Second)
-
-		rec := env.do(http.MethodPost, "/api/auth/register",
-			`{"email":"new@example.com","password":"secret-password","invite_code":"nope"}`)
-		requireErrorCode(t, rec, http.StatusForbidden, "invalid_invite")
-	})
-
-	t.Run("invite rejects expired code", func(t *testing.T) {
-		env := newTestEnv(t, time.Second)
-		createTestInvite(t, env, testInviteCode, time.Now().Add(-time.Minute))
-
-		rec := env.do(http.MethodPost, "/api/auth/register",
-			`{"email":"new@example.com","password":"secret-password","invite_code":"`+testInviteCode+`"}`)
-		requireErrorCode(t, rec, http.StatusForbidden, "invalid_invite")
-	})
-
-	t.Run("invite registers once", func(t *testing.T) {
-		env := newTestEnv(t, time.Second)
-		createTestInvite(t, env, testInviteCode, time.Now().Add(time.Hour))
-
-		rec := env.do(http.MethodPost, "/api/auth/register",
-			`{"email":"New@Example.com","password":"secret-password","invite_code":"`+testInviteCode+`"}`)
+			`{"email":"New@Example.com","password":"secret-password"}`)
 		requireStatus(t, rec, http.StatusOK)
 
 		body := decodeBody[authBody](t, rec)
@@ -378,82 +319,94 @@ func TestRegisterModes(t *testing.T) {
 		if body.Token == "" {
 			t.Fatal("register did not return a session token")
 		}
-
-		replay := env.do(http.MethodPost, "/api/auth/register",
-			`{"email":"second@example.com","password":"secret-password","invite_code":"`+testInviteCode+`"}`)
-		requireErrorCode(t, replay, http.StatusForbidden, "invalid_invite")
 	})
 
-	t.Run("open needs no code", func(t *testing.T) {
-		env := newTestEnvWithAuth(t, time.Second, AuthConfig{SessionTTL: time.Hour, RegistrationMode: "open"})
-
-		rec := env.do(http.MethodPost, "/api/auth/register",
-			`{"email":"new@example.com","password":"secret-password"}`)
-		requireStatus(t, rec, http.StatusOK)
-		if cookie := sessionCookieFrom(t, rec); cookie == nil {
-			t.Fatal("register did not issue a session cookie")
-		}
-	})
-
-	t.Run("empty mode defaults to invite", func(t *testing.T) {
+	t.Run("empty mode defaults to open", func(t *testing.T) {
 		env := newTestEnvWithAuth(t, time.Second, AuthConfig{SessionTTL: time.Hour})
 
 		rec := env.do(http.MethodPost, "/api/auth/register",
 			`{"email":"new@example.com","password":"secret-password"}`)
-		requireErrorCode(t, rec, http.StatusForbidden, "invalid_invite")
+		requireStatus(t, rec, http.StatusOK)
+	})
+
+	t.Run("unknown mode fails closed", func(t *testing.T) {
+		// 配置写错（例如旧部署残留的 invite）必须拒绝注册，不能静默降级成 open。
+		env := newTestEnvWithAuth(t, time.Second, AuthConfig{SessionTTL: time.Hour, RegistrationMode: "invite"})
+
+		rec := env.do(http.MethodPost, "/api/auth/register",
+			`{"email":"new@example.com","password":"secret-password"}`)
+		requireErrorCode(t, rec, http.StatusForbidden, "registration_closed")
 	})
 }
 
-// TestRegisterDuplicateEmailDoesNotLeakWithoutValidInvite 固化：没有有效邀请码
-// 时，重复邮箱与未知邮箱得到完全相同的 403，不能用来枚举已注册账号。
-func TestRegisterDuplicateEmailDoesNotLeakWithoutValidInvite(t *testing.T) {
-	env := newTestEnv(t, time.Second)
-	createTestUser(t, env, "taken@example.com", testLoginPassword, "user", "active")
-
-	existing := env.do(http.MethodPost, "/api/auth/register",
-		`{"email":"taken@example.com","password":"secret-password","invite_code":"bogus"}`)
-	unknown := env.do(http.MethodPost, "/api/auth/register",
-		`{"email":"fresh@example.com","password":"secret-password","invite_code":"bogus"}`)
-
-	requireErrorCode(t, existing, http.StatusForbidden, "invalid_invite")
-	requireErrorCode(t, unknown, http.StatusForbidden, "invalid_invite")
-	if existing.Body.String() != unknown.Body.String() {
-		t.Fatalf("bodies differ: %q vs %q", existing.Body.String(), unknown.Body.String())
+func TestRegisterOpenModeNeedsNoInviteCode(t *testing.T) {
+	env := newTestEnvWithAuth(t, time.Second, AuthConfig{SessionTTL: time.Hour, RegistrationMode: "open"})
+	rec := env.do(http.MethodPost, "/api/auth/register", `{"email":"a@example.com","password":"password123"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var body authBody
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Token == "" {
+		t.Fatal("register must return a session token")
 	}
 }
 
-// TestRegisterRejectsDuplicateEmailWithValidInvite 校验持有有效邀请码时重复
-// 邮箱得到 409；邀请码已因这次尝试作废，这是「不泄漏账号存在性」的代价。
-func TestRegisterRejectsDuplicateEmailWithValidInvite(t *testing.T) {
-	env := newTestEnv(t, time.Second)
-	createTestUser(t, env, "taken@example.com", testLoginPassword, "user", "active")
-	createTestInvite(t, env, testInviteCode, time.Now().Add(time.Hour))
-
-	rec := env.do(http.MethodPost, "/api/auth/register",
-		`{"email":"taken@example.com","password":"secret-password","invite_code":"`+testInviteCode+`"}`)
-	requireErrorCode(t, rec, http.StatusConflict, "email_taken")
-
-	replay := env.do(http.MethodPost, "/api/auth/register",
-		`{"email":"fresh@example.com","password":"secret-password","invite_code":"`+testInviteCode+`"}`)
-	requireErrorCode(t, replay, http.StatusForbidden, "invalid_invite")
+func TestRegisterClosedModeForbidden(t *testing.T) {
+	env := newTestEnvWithAuth(t, time.Second, AuthConfig{SessionTTL: time.Hour, RegistrationMode: "closed"})
+	if rec := env.do(http.MethodPost, "/api/auth/register", `{"email":"a@example.com","password":"password123"}`); rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", rec.Code)
+	}
 }
 
-// TestRegisterValidatesInputBeforeConsumingInvite 校验失败不能消耗邀请码。
-func TestRegisterValidatesInputBeforeConsumingInvite(t *testing.T) {
-	env := newTestEnv(t, time.Second)
-	createTestInvite(t, env, testInviteCode, time.Now().Add(time.Hour))
+func TestRegisterRateLimitedBySourceIP(t *testing.T) {
+	env := newTestEnvWithAuth(t, time.Second, AuthConfig{SessionTTL: time.Hour, RegistrationMode: "open"})
+	for i := 0; i < registerAttemptsPerIP; i++ {
+		body := fmt.Sprintf(`{"email":"u%d@example.com","password":"password123"}`, i)
+		if rec := env.do(http.MethodPost, "/api/auth/register", body); rec.Code != http.StatusOK {
+			t.Fatalf("attempt %d status = %d, want 200; body=%s", i+1, rec.Code, rec.Body.String())
+		}
+	}
+	rec := env.do(http.MethodPost, "/api/auth/register", `{"email":"last@example.com","password":"password123"}`)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want 429", rec.Code)
+	}
+	if got := rec.Header().Get("Retry-After"); got != "60" {
+		t.Fatalf("Retry-After = %q, want 60", got)
+	}
+	// 换一个来源 IP 不受影响：限流的键是 RemoteAddr 的主机。
+	if rec := env.serveWith("203.0.113.9:5555", "", http.MethodPost, "/api/auth/register",
+		`{"email":"other@example.com","password":"password123"}`); rec.Code != http.StatusOK {
+		t.Fatalf("different IP status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+}
 
-	blankEmail := env.do(http.MethodPost, "/api/auth/register",
-		`{"email":" ","password":"secret-password","invite_code":"`+testInviteCode+`"}`)
+// TestRegisterRejectsDuplicateEmail 校验开放注册下重复邮箱得到 409。
+func TestRegisterRejectsDuplicateEmail(t *testing.T) {
+	env := newTestEnvWithAuth(t, time.Second, AuthConfig{SessionTTL: time.Hour, RegistrationMode: "open"})
+	createTestUser(t, env, "taken@example.com", testLoginPassword, "user", "active")
+
+	rec := env.do(http.MethodPost, "/api/auth/register",
+		`{"email":"taken@example.com","password":"secret-password"}`)
+	requireErrorCode(t, rec, http.StatusConflict, "email_taken")
+}
+
+// TestRegisterValidatesInputBeforeTouchingStore 校验坏输入不会创建账号。
+func TestRegisterValidatesInputBeforeTouchingStore(t *testing.T) {
+	env := newTestEnvWithAuth(t, time.Second, AuthConfig{SessionTTL: time.Hour, RegistrationMode: "open"})
+
+	blankEmail := env.do(http.MethodPost, "/api/auth/register", `{"email":" ","password":"secret-password"}`)
 	requireErrorCode(t, blankEmail, http.StatusBadRequest, "invalid_request")
 
-	shortPassword := env.do(http.MethodPost, "/api/auth/register",
-		`{"email":"new@example.com","password":"short","invite_code":"`+testInviteCode+`"}`)
+	shortPassword := env.do(http.MethodPost, "/api/auth/register", `{"email":"new@example.com","password":"short"}`)
 	requireErrorCode(t, shortPassword, http.StatusBadRequest, "invalid_request")
 
-	ok := env.do(http.MethodPost, "/api/auth/register",
-		`{"email":"new@example.com","password":"secret-password","invite_code":"`+testInviteCode+`"}`)
-	requireStatus(t, ok, http.StatusOK)
+	count, err := env.store.CountUsers(context.Background())
+	if err != nil || count != 0 {
+		t.Fatalf("CountUsers = %d, %v; want 0 after rejected input", count, err)
+	}
 }
 
 // TestLogoutDeletesOnlyTheCurrentSession 校验登出精确吊销当前会话并清 cookie。
@@ -625,4 +578,110 @@ func TestMeReturnsUserOrKind(t *testing.T) {
 		rec := env.doNoPrincipal(http.MethodGet, "/api/me", "")
 		requireErrorCode(t, rec, http.StatusUnauthorized, "unauthorized")
 	})
+}
+
+// sessionTokenFrom 取响应里的会话 cookie 值：手机端把同一个值当 Bearer 用。
+func sessionTokenFrom(t *testing.T, rec *httptest.ResponseRecorder) string {
+	t.Helper()
+
+	cookie := sessionCookieFrom(t, rec)
+	if cookie == nil {
+		t.Fatal("response must set a session cookie")
+	}
+	return cookie.Value
+}
+
+// loginSession 用密码换一条新会话（模拟另一台设备）。
+func loginSession(t *testing.T, env *testEnv, email, password string) string {
+	t.Helper()
+
+	body := fmt.Sprintf(`{"email":%q,"password":%q}`, email, password)
+	rec := env.do(http.MethodPost, "/api/auth/login", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("login %q: status = %d; body=%s", email, rec.Code, rec.Body.String())
+	}
+	return sessionTokenFrom(t, rec)
+}
+
+// userForToken 用会话令牌解析出真实 principal，供 doAs 注入。
+//
+// 不走 env.do 是因为 withDefaultPrincipal 会把无身份请求补成本机管理员，
+// 那样改密码永远不会拿到 401。
+func userForToken(t *testing.T, env *testEnv, token string) authz.Principal {
+	t.Helper()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/me", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	principal, ok, err := env.resolver.Resolve(req)
+	if err != nil || !ok || principal.Kind != authz.KindUser {
+		t.Fatalf("resolve token: principal=%+v ok=%v err=%v", principal, ok, err)
+	}
+	return principal
+}
+
+// createUserWithPassword 直接落一个可登录账号，跳过注册限流。
+func createUserWithPassword(t *testing.T, env *testEnv, email, password string) store.User {
+	t.Helper()
+
+	hash, err := authn.HashPassword(password)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	user, err := env.store.CreateUser(context.Background(), store.User{
+		Email: email, PasswordHash: hash, Role: "user", Status: "active",
+	})
+	if err != nil {
+		t.Fatalf("create user %q: %v", email, err)
+	}
+	return user
+}
+
+func TestChangePasswordRequiresCurrentPassword(t *testing.T) {
+	env := newTestEnvWithAuth(t, time.Second, AuthConfig{SessionTTL: time.Hour, RegistrationMode: "open"})
+	createUserWithPassword(t, env, "a@example.com", "password123")
+	token := loginSession(t, env, "a@example.com", "password123")
+
+	rec := env.doAs(userForToken(t, env, token), http.MethodPost, "/api/auth/password",
+		`{"current_password":"wrong-password","new_password":"newpassword1"}`)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestChangePasswordRotatesAndKeepsCurrentSession(t *testing.T) {
+	env := newTestEnvWithAuth(t, time.Second, AuthConfig{SessionTTL: time.Hour, RegistrationMode: "open"})
+	createUserWithPassword(t, env, "a@example.com", "password123")
+	tokenA := loginSession(t, env, "a@example.com", "password123")
+	tokenB := loginSession(t, env, "a@example.com", "password123") // 第二台设备
+
+	rec := env.doAs(userForToken(t, env, tokenA), http.MethodPost, "/api/auth/password",
+		`{"current_password":"password123","new_password":"newpassword1"}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204; body=%s", rec.Code, rec.Body.String())
+	}
+
+	// 当前会话保留，其他会话被吊销：直接看会话表，比再打一次接口更接近事实。
+	if _, ok, err := env.store.SessionByTokenHash(context.Background(), authn.HashToken(tokenA)); err != nil || !ok {
+		t.Fatalf("current session survived: ok=%v err=%v", ok, err)
+	}
+	if _, ok, _ := env.store.SessionByTokenHash(context.Background(), authn.HashToken(tokenB)); ok {
+		t.Fatal("other session must be revoked")
+	}
+	// 新密码可登录，旧密码失效。
+	if rec := env.do(http.MethodPost, "/api/auth/login", `{"email":"a@example.com","password":"newpassword1"}`); rec.Code != http.StatusOK {
+		t.Fatalf("login with new password = %d, want 200", rec.Code)
+	}
+	if rec := env.do(http.MethodPost, "/api/auth/login", `{"email":"a@example.com","password":"password123"}`); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("login with old password = %d, want 401", rec.Code)
+	}
+}
+
+func TestChangePasswordRejectsShortPassword(t *testing.T) {
+	env := newTestEnvWithAuth(t, time.Second, AuthConfig{SessionTTL: time.Hour, RegistrationMode: "open"})
+	createUserWithPassword(t, env, "a@example.com", "password123")
+	token := loginSession(t, env, "a@example.com", "password123")
+	if rec := env.doAs(userForToken(t, env, token), http.MethodPost, "/api/auth/password",
+		`{"current_password":"password123","new_password":"short"}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
 }

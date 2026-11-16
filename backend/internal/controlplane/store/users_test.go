@@ -188,3 +188,22 @@ func TestUserLookupAndSessionDeletion(t *testing.T) {
 		t.Fatal("sessions survived DeleteUserSessions")
 	}
 }
+
+// TestFirstAdminUserReturnsOldestActiveAdmin 固化本机语义选中的账号：
+// 最早创建且仍可用的管理员。
+func TestFirstAdminUserReturnsOldestActiveAdmin(t *testing.T) {
+	st := openTestStore(t)
+	ctx := context.Background()
+	hash, _ := authn.HashPassword("password123")
+	first, _ := st.CreateUser(ctx, User{Email: "first@example.com", PasswordHash: hash, Role: "admin", Status: "active"})
+	_, _ = st.CreateUser(ctx, User{Email: "second@example.com", PasswordHash: hash, Role: "admin", Status: "active"})
+	_, _ = st.CreateUser(ctx, User{Email: "u@example.com", PasswordHash: hash, Role: "user", Status: "active"})
+
+	got, ok, err := st.FirstAdminUser(ctx)
+	if err != nil || !ok {
+		t.Fatalf("FirstAdminUser = %v, %v; want found", ok, err)
+	}
+	if got.ID != first.ID {
+		t.Fatalf("FirstAdminUser = %q, want oldest admin %q", got.ID, first.ID)
+	}
+}

@@ -118,6 +118,14 @@ func (v Resolver) Resolve(r *http.Request) (Principal, bool, error) {
 	}
 
 	if v.LocalAdmin && IsLocalRequest(r) {
+		// 本机直通解析成真实管理员账号：本机的节点、偏好、移除操作都写入
+		// 这个账号，手机用同一账号登录时看到的是同一份归属。查不到管理员
+		// （被手动删除、库不可用）时回落到部署级 KindLocal，别把本机锁死。
+		if v.Store != nil {
+			if user, ok, err := v.Store.FirstAdminUser(r.Context()); err == nil && ok {
+				return Principal{Kind: KindUser, UserID: user.ID, Role: roleAdmin}, true, nil
+			}
+		}
 		return Principal{Kind: KindLocal}, true, nil
 	}
 

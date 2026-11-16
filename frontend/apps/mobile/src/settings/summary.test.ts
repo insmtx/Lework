@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import { DEFAULT_PREFERENCES, type Preferences } from "./preferences";
-import { describeAppearance, describeProcess, describeReminder, describeServer } from "./summary";
+import {
+	describeAccount,
+	describeAppearance,
+	describeProcess,
+	describeReminder,
+	describeServer,
+} from "./summary";
 
 const prefs: Preferences = {
 	...DEFAULT_PREFERENCES,
@@ -59,5 +65,13 @@ describe("describeServer", () => {
 	it("没有地址或空串时显示未连接", () => {
 		expect(describeServer(undefined)).toBe("未连接");
 		expect(describeServer("")).toBe("未连接");
+	});
+});
+
+describe("describeAccount", () => {
+	it("显示邮箱或登录入口", () => {
+		expect(describeAccount("a@example.com")).toBe("a@example.com");
+		expect(describeAccount("")).toBe("登录 / 注册");
+		expect(describeAccount(undefined)).toBe("登录 / 注册");
 	});
 });

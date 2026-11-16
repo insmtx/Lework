@@ -10,10 +10,13 @@ import (
 	"github.com/google/uuid"
 )
 
+// ErrUserNotFound 表示账号不存在（被删除，或引用了已清理的 ID）。
+var ErrUserNotFound = errors.New("user not found")
+
 // CountUsers 返回账号总数。
 //
-// 登录页需要判断「这是不是一台刚部署的控制面」：为 0 时才允许用 enrollment
-// token 初始化第一个管理员，否则任何人都能凭令牌再造一个 admin。
+// 登录页需要判断「这是不是一台刚部署的控制面」：为 0 时展示初始化提示，
+// 自动引导也用它决定是否创建默认管理员。
 func (s *Store) CountUsers(ctx context.Context) (int64, error) {
 	var n int64
 	if err := s.db.WithContext(ctx).Model(&User{}).Count(&n).Error; err != nil {
@@ -190,6 +193,44 @@ func (s *Store) TouchSession(ctx context.Context, sessionID string, expiresAt, l
 	return nil
 }
 
+// UpdateUserPassword 覆盖账号的密码哈希。
+//
+// 只改哈希列：会话吊销是调用方的决定（改密码要踢掉其他设备，但当前设备
+// 应当继续可用），存储层不该替它做全量删除。
+func (s *Store) UpdateUserPassword(ctx context.Context, userID, passwordHash string) error {
+	if strings.TrimSpace(userID) == "" || strings.TrimSpace(passwordHash) == "" {
+		return errors.New("user id and password hash are required")
+	}
+	res := s.db.WithContext(ctx).Model(&User{}).
+		Where("id = ?", userID).
+		UpdateColumns(map[string]any{"password_hash": passwordHash, "updated_at": time.Now().UTC()})
+	if res.Error != nil {
+		return fmt.Errorf("update password for user %q: %w", userID, res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return ErrUserNotFound
+	}
+	return nil
+}
+
+// DeleteOtherUserSessions 吊销某账号除 keepSessionID 之外的全部会话。
+//
+// keepSessionID 为空表示「全部吊销」：本机回环身份没有会话行，改密后的
+// 清理语义与「踢掉其他设备」一致。
+func (s *Store) DeleteOtherUserSessions(ctx context.Context, userID, keepSessionID string) error {
+	if strings.TrimSpace(userID) == "" {
+		return errors.New("session user id is required")
+	}
+	query := s.db.WithContext(ctx).Where("user_id = ?", userID)
+	if strings.TrimSpace(keepSessionID) != "" {
+		query = query.Where("id <> ?", keepSessionID)
+	}
+	if err := query.Delete(&UserSession{}).Error; err != nil {
+		return fmt.Errorf("delete other sessions for user %q: %w", userID, err)
+	}
+	return nil
+}
+
 // DeleteUserSessions 清空某个用户的全部会话。
 //
 // 改密、禁用或移除账号时必须调用：只改密码而留着旧会话，等于让泄露的令牌
@@ -202,6 +243,29 @@ func (s *Store) DeleteUserSessions(ctx context.Context, userID string) error {
 		return fmt.Errorf("delete sessions for user %q: %w", userID, err)
 	}
 	return nil
+}
+
+// FirstAdminUser 返回最早创建的可用管理员账号。
+//
+// 本机回环请求要落到「一个真实账号」而不是部署级身份，否则本机的节点归属
+// 与手机上同一账号看到的节点会对不上。选最早创建的那个：自动引导建的 admin
+// 永远排在最前，后续新增的管理员不会抢走本机语义。
+//
+// 停用账号不参与：一个被禁用的管理员不应该继续代表部署者。
+func (s *Store) FirstAdminUser(ctx context.Context) (User, bool, error) {
+	var rows []User
+	err := s.db.WithContext(ctx).
+		Where("role = ? AND status = ?", "admin", "active").
+		Order("created_at ASC").
+		Limit(1).
+		Find(&rows).Error
+	if err != nil {
+		return User{}, false, fmt.Errorf("lookup first admin: %w", err)
+	}
+	if len(rows) == 0 {
+		return User{}, false, nil
+	}
+	return rows[0], true, nil
 }
 
 // normalizeEmail 把邮箱收敛成存储与比较的唯一形式（小写、去首尾空格）。

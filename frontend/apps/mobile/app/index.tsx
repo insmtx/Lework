@@ -88,7 +88,7 @@ export default function HomeScreen() {
 	const send = useCallback(async () => {
 		const text = draft.trim();
 		const nodeID = target.nodeID;
-		if (!settings || !nodeID || target.directory === "" || text === "") return;
+		if (!settings?.sessionToken || !nodeID || target.directory === "" || text === "") return;
 
 		setSending(true);
 		try {
@@ -111,8 +111,8 @@ export default function HomeScreen() {
 		}
 	}, [settings, target, draft, store, projects]);
 
-	const disabledReason = !settings
-		? "先连接控制面"
+	const disabledReason = !settings?.sessionToken
+		? "先登录账号"
 		: target.reason === "no-dir"
 			? "还没有可用的任务目录"
 			: target.reason === "no-node"
@@ -160,9 +160,9 @@ export default function HomeScreen() {
 					</View>
 				</View>
 
-				{!settingsLoading && !settings ? (
-					<Pressable style={styles.link} onPress={() => router.push("/settings")}>
-						<Text style={styles.linkText}>去设置连接</Text>
+				{!settingsLoading && !settings?.sessionToken ? (
+					<Pressable style={styles.link} onPress={() => router.push("/login")}>
+						<Text style={styles.linkText}>登录以查看电脑</Text>
 					</Pressable>
 				) : null}
 			</KeyboardAvoidingView>

@@ -87,12 +87,15 @@ function RootNavigator() {
 				<Stack.Screen name="projects/[key]" options={{ title: "项目" }} />
 				<Stack.Screen name="pending" options={{ title: "待审批" }} />
 				<Stack.Screen name="nodes" options={{ title: "我的电脑" }} />
+				<Stack.Screen name="nodes/add" options={{ title: "添加电脑" }} />
+				<Stack.Screen name="node/pair" options={{ headerShown: false }} />
 				<Stack.Screen name="settings/index" options={{ title: "设置" }} />
 				<Stack.Screen name="settings/appearance" options={{ title: "界面" }} />
 				<Stack.Screen name="settings/notifications" options={{ title: "提醒" }} />
 				<Stack.Screen name="settings/server" options={{ title: "服务器设置" }} />
 				<Stack.Screen name="settings/process" options={{ title: "过程展示" }} />
-				<Stack.Screen name="connect" options={{ headerShown: false }} />
+				<Stack.Screen name="login" options={{ title: "登录", headerShown: false }} />
+				<Stack.Screen name="settings/account" options={{ title: "账号" }} />
 				<Stack.Screen name="session/[node]/[id]" options={{ headerShown: false }} />
 			</Stack>
 		</AppShell>

@@ -662,3 +662,18 @@ func TestDeprecatedPreferenceWrappersUseLegacyNamespace(t *testing.T) {
 		t.Fatalf("account preferences = %#v, want none", account)
 	}
 }
+
+func TestMigrateDropsLegacyInvitesTable(t *testing.T) {
+	st := openTestStore(t)
+	// 模拟旧库遗留的 invites 表。openTestStore 已经 AutoMigrate 出这张表，
+	// 用 IF NOT EXISTS 保证用例在两种前置状态下都成立；迁移必须把它删掉。
+	if err := st.db.Exec(`CREATE TABLE IF NOT EXISTS invites (id TEXT PRIMARY KEY, code_hash TEXT)`).Error; err != nil {
+		t.Fatalf("create legacy invites: %v", err)
+	}
+	if err := migrateControlPlane(st.db); err != nil {
+		t.Fatalf("migrate control plane: %v", err)
+	}
+	if st.db.Migrator().HasTable("invites") {
+		t.Fatal("invites table still exists after migration")
+	}
+}

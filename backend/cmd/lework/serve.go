@@ -10,8 +10,10 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
+	"github.com/ygpkg/yg-go/logs"
 
 	"github.com/insmtx/lework/backend/internal/controlplane"
+	"github.com/insmtx/lework/backend/internal/controlplane/bootstrap"
 	controlplaneconfig "github.com/insmtx/lework/backend/internal/controlplane/config"
 	"github.com/insmtx/lework/backend/internal/controlplane/store"
 	"github.com/insmtx/lework/backend/internal/infra/mq"
@@ -206,6 +208,14 @@ func openControlPlane(cfg controlplaneconfig.Config) (*controlPlaneRuntime, erro
 	st, err := store.OpenPostgres(*cfg.Database)
 	if err != nil {
 		return nil, fmt.Errorf("open control plane store: %w", err)
+	}
+
+	if user, created, err := bootstrap.EnsureAdmin(context.Background(), st); err != nil {
+		_ = st.Close()
+		return nil, fmt.Errorf("bootstrap admin: %w", err)
+	} else if created {
+		logs.Warnf("control plane: created default admin %q with password %q; change it in the app or via POST /api/auth/password",
+			user.Email, bootstrap.DefaultAdminPassword)
 	}
 
 	bus, err := mq.NewNATS(cfg.NATS.URL)

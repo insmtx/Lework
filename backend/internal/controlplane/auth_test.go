@@ -112,21 +112,21 @@ func TestAuthMiddleware(t *testing.T) {
 			target:     "/api/nodes",
 			remoteAddr: "127.0.0.1:5555",
 			wantStatus: http.StatusOK,
-			wantKind:   authz.KindLocal,
+			wantKind:   authz.KindUser,
 		},
 		{
 			name:       "ipv6 loopback passes",
 			target:     "/api/nodes",
 			remoteAddr: "[::1]:5555",
 			wantStatus: http.StatusOK,
-			wantKind:   authz.KindLocal,
+			wantKind:   authz.KindUser,
 		},
 		{
 			name:       "localhost passes",
 			target:     "/api/nodes",
 			remoteAddr: "localhost:5555",
 			wantStatus: http.StatusOK,
-			wantKind:   authz.KindLocal,
+			wantKind:   authz.KindUser,
 		},
 		{
 			name:       "remote without credentials denied",
@@ -215,8 +215,8 @@ func TestAuthMiddleware(t *testing.T) {
 			wantKind:   "none",
 		},
 		{
-			name:       "bootstrap exempt",
-			target:     "/api/auth/bootstrap",
+			name:       "auth methods exempt",
+			target:     "/api/auth/methods",
 			remoteAddr: "203.0.113.5:5555",
 			wantStatus: http.StatusOK,
 			wantKind:   "none",
@@ -332,7 +332,7 @@ func TestAuthMiddlewareFirstRunLocalPassThrough(t *testing.T) {
 		}
 	})
 
-	t.Run("local admin enabled ignores the user table", func(t *testing.T) {
+	t.Run("local admin enabled resolves to the admin account", func(t *testing.T) {
 		f := newAuthFixture(t, true)
 
 		rec := httptest.NewRecorder()
@@ -341,8 +341,9 @@ func TestAuthMiddlewareFirstRunLocalPassThrough(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200 (body=%s)", rec.Code, rec.Body)
 		}
-		if got := rec.Header().Get("X-Principal-Kind"); got != authz.KindLocal {
-			t.Fatalf("principal kind = %q, want local", got)
+		// 库里有 admin 时本机语义是一个真实账号，不再是部署级 KindLocal。
+		if got := rec.Header().Get("X-Principal-Kind"); got != authz.KindUser {
+			t.Fatalf("principal kind = %q, want user", got)
 		}
 	})
 
@@ -393,7 +394,7 @@ func TestAuthExemptPath(t *testing.T) {
 		{path: "/favicon.ico", want: true},
 		{path: "/healthz", want: true},
 		{path: "/api/agent/connect", want: true},
-		{path: "/api/auth/bootstrap", want: true},
+		{path: "/api/auth/methods", want: true},
 		{path: "/api/auth/login", want: true},
 		{path: "/api/auth/register", want: true},
 		{path: "/api/auth/logout"},

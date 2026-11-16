@@ -7,6 +7,8 @@ export interface NodeView {
 	capabilities: string[];
 	/** 节点允许的工作目录；老 agent 不上报时为空数组或缺省。 */
 	workspace_roots?: string[];
+	/** 已归属某个账号；老控制面没有该字段时为 undefined。 */
+	claimed?: boolean;
 	connected: boolean;
 	last_seen: string;
 }
@@ -180,4 +182,32 @@ export interface Device {
 	push_token: string;
 	last_seen: string;
 	created_at: string;
+}
+
+/** AuthMethods 是登录页在鉴权之前能拿到的全部信息。 */
+export interface AuthMethods {
+	initialized: boolean;
+	registration_mode: "open" | "closed";
+}
+
+export interface AuthUser {
+	id: string;
+	email: string;
+	role?: string;
+	status?: string;
+}
+
+export interface AuthResponse {
+	user: AuthUser;
+	token: string;
+}
+
+/** ClaimPreview 是 5 位码对应的机器信息；确认前给用户看的就是它。 */
+export interface ClaimPreview {
+	code: string;
+	node_name: string;
+	os: string;
+	arch: string;
+	agent_version: string;
+	expires_at: string;
 }

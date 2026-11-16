@@ -60,6 +60,9 @@ type agentConnectOptions struct {
 	Code string
 	// NoQR 关闭终端二维码，只打印链接与短码。
 	NoQR bool
+	// Reset 表示启动前删除本地凭证与待定配对文件，强制重新配对。
+	// 它只影响本地文件与本轮策略，不做任何远端写入。
+	Reset bool
 }
 
 // validate 拒绝互相矛盾的来源：--code 要新建一次配对，--credential-file 指向
@@ -216,6 +219,13 @@ func runAgent(ctx context.Context, configPath string, opts agentConnectOptions) 
 	opts.CredentialPath = resolveCredentialPath(opts.CredentialPath, configPath, cfg.CredentialFile)
 	cfg.CredentialFile = opts.CredentialPath
 
+	if opts.Reset {
+		if err := resetCredentialState(opts.CredentialPath); err != nil {
+			return err
+		}
+		logs.Infof("lework-agent: --reset removed local pairing state at %s", opts.CredentialPath)
+	}
+
 	runtime, err := buildAgent(cfg)
 	if err != nil {
 		return err
@@ -286,7 +296,7 @@ func reconnect(
 	if err != nil {
 		return fmt.Errorf("lework-agent: 读取节点凭证 %s 失败：%w", cfg.CredentialFile, err)
 	}
-	plan, err := planPairing(hasCredential, source, cfg.CredentialFile, opts.Code, cfg.EnrollmentToken)
+	plan, err := planPairing(hasCredential, source, cfg.CredentialFile, opts.Code, cfg.EnrollmentToken, opts.Reset)
 	if err != nil {
 		return err
 	}
@@ -483,7 +493,12 @@ const (
 //
 // 纯函数：这是用户最容易踩的优先级，测试要能逐条覆盖而不用真的拨号。
 // 已有凭证时 --code 是错误而不是覆盖：静默覆盖会让一台机器悄悄换账号。
-func planPairing(hasCredential bool, source credentialSource, credentialPath, code, enrollmentToken string) (pairPlan, error) {
+func planPairing(
+	hasCredential bool,
+	source credentialSource,
+	credentialPath, code, enrollmentToken string,
+	reset bool,
+) (pairPlan, error) {
 	if hasCredential {
 		if strings.TrimSpace(code) != "" {
 			return pairPlanCredentialOnly, fmt.Errorf("lework-agent: %w", source.conflictError(credentialPath))
@@ -493,10 +508,37 @@ func planPairing(hasCredential bool, source credentialSource, credentialPath, co
 	if strings.TrimSpace(code) != "" {
 		return pairPlanCode, nil
 	}
-	if strings.TrimSpace(enrollmentToken) != "" {
+	// --reset 明确要求「重新配对」：这一轮忽略 enrollment token，否则
+	// 「没有凭证 + 有 token」会走旧直通，登记成未认领节点，手机根本看不到。
+	if !reset && strings.TrimSpace(enrollmentToken) != "" {
 		return pairPlanLegacy, nil
 	}
 	return pairPlanInteractive, nil
+}
+
+// resetCredentialState 删除节点凭证与待定配对文件，让下一次拨号走配对。
+//
+// 环境变量无法删除，所以 LEWORK_NODE_CREDENTIAL 存在时直接失败而不是
+// 「删了文件又用 env 里的旧凭证连回去」——那只会让用户以为重置没生效。
+func resetCredentialState(credentialPath string) error {
+	if strings.TrimSpace(os.Getenv(nodeCredentialEnv)) != "" {
+		return fmt.Errorf("--reset cannot remove the credential from %s; unset it and retry", nodeCredentialEnv)
+	}
+	path := strings.TrimSpace(credentialPath)
+	if path == "" {
+		return nil
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove node credential %s: %w", path, err)
+	}
+	claimPath := pair.ClaimPath(path)
+	if claimPath == "" {
+		return nil
+	}
+	if err := os.Remove(claimPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove pairing claim %s: %w", claimPath, err)
+	}
+	return nil
 }
 
 // pairingDecision 是当前轮在拨号前要做的事。

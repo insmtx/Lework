@@ -224,7 +224,7 @@ type testEnv struct {
 func newTestEnv(t *testing.T, timeout time.Duration) *testEnv {
 	t.Helper()
 
-	return newTestEnvWithAuth(t, timeout, AuthConfig{SessionTTL: time.Hour, RegistrationMode: "invite"})
+	return newTestEnvWithAuth(t, timeout, AuthConfig{SessionTTL: time.Hour, RegistrationMode: "open"})
 }
 
 // newTestEnvWithAuth 让注册策略等鉴权配置可以按用例覆盖。
@@ -367,6 +367,26 @@ func (e *testEnv) serve(method, target, body string, principal *authz.Principal)
 	e.t.Helper()
 
 	return e.serveHandler(e.mux, method, target, body, principal)
+}
+
+// serveWith 让用例指定来源 IP 与 Bearer 令牌：注册限流按 RemoteAddr 计数，
+// 改密码/会话类用例要用令牌而不是测试注入的本机管理员身份。
+func (e *testEnv) serveWith(remoteAddr, token, method, target, body string) *httptest.ResponseRecorder {
+	e.t.Helper()
+
+	req := httptest.NewRequest(method, target, strings.NewReader(body))
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if remoteAddr != "" {
+		req.RemoteAddr = remoteAddr
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	rec := httptest.NewRecorder()
+	e.mux.ServeHTTP(rec, req)
+	return rec
 }
 
 // serveHandler 是 serve 的底层实现，允许选用未包装默认身份的 mux。
