@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, Text, TextInput, View } from "react-native";
+import { Pressable, Text, TextInput, View } from "react-native";
 
 import { createClient } from "../src/api/client";
 import { createSettingsStyles, SettingsPage, SettingsSection } from "../src/settings/components";
@@ -9,14 +9,16 @@ import {
 	authErrorMessage,
 	canRegister,
 	loadAuthMethods,
+	type SessionDeps,
 	signIn,
 	signUp,
-	type SessionDeps,
 } from "../src/settings/session";
 import { normalizeBaseUrl } from "../src/settings/settings";
 import { useSettings } from "../src/settings/use-settings";
 import { useTheme, useThemedStyles } from "../src/theme/use-theme";
 import { useAppShell } from "../src/ui/app-shell-context";
+import { BrandMark } from "../src/ui/brand";
+import { BrandSpinner } from "../src/ui/loading";
 
 type Mode = "login" | "register";
 
@@ -108,10 +110,14 @@ export default function LoginScreen() {
 
 	return (
 		<SettingsPage>
-			<SettingsSection
-				title="账号"
-				hint="用控制面账号登录；节点与项目都归属于这个账号。"
-			>
+			<View style={{ alignItems: "center", gap: 8, paddingVertical: 12 }}>
+				<BrandMark size={64} />
+				<Text style={{ fontSize: 22, fontWeight: "700", color: theme.colors.textStrong }}>
+					lework
+				</Text>
+				<Text style={{ fontSize: 13, color: theme.colors.textMuted }}>你的 OpenCode 控制面</Text>
+			</View>
+			<SettingsSection title="账号" hint="用控制面账号登录；节点与项目都归属于这个账号。">
 				<Text style={styles.fieldLabel}>服务器地址</Text>
 				<TextInput
 					style={styles.input}
@@ -150,7 +156,7 @@ export default function LoginScreen() {
 					style={[styles.button, !canSubmit && styles.buttonDisabled]}
 				>
 					{busy ? (
-						<ActivityIndicator color={theme.colors.actionText} />
+						<BrandSpinner color={theme.colors.actionText} />
 					) : (
 						<Text style={styles.buttonText}>{mode === "login" ? "登录" : "注册并登录"}</Text>
 					)}
@@ -166,9 +172,7 @@ export default function LoginScreen() {
 					</View>
 				) : null}
 
-				{registrationClosed ? (
-					<Text style={styles.hint}>这台服务器未开放注册</Text>
-				) : null}
+				{registrationClosed ? <Text style={styles.hint}>这台服务器未开放注册</Text> : null}
 				{methods && !methods.initialized ? (
 					<Text style={styles.hint}>
 						这台服务器还没有管理员：在电脑上启动 lework，用默认账号 admin / admin123

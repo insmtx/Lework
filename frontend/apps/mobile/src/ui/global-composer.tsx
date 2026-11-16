@@ -1,5 +1,4 @@
 import {
-	ActivityIndicator,
 	KeyboardAvoidingView,
 	Platform,
 	Pressable,
@@ -12,6 +11,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { Theme } from "../theme/theme";
 import { useTheme, useThemedStyles } from "../theme/use-theme";
+import { BrandSpinner } from "./loading";
 
 /** ComposerTarget 是当前输入要发往的项目/节点。 */
 export interface ComposerTarget {
@@ -92,7 +92,7 @@ export function GlobalComposer(props: GlobalComposerProps) {
 						style={[styles.send, !canSend && styles.sendDisabled]}
 					>
 						{props.sending ? (
-							<ActivityIndicator color={theme.colors.actionText} />
+							<BrandSpinner color={theme.colors.actionText} />
 						) : (
 							<Text style={styles.sendText}>发送</Text>
 						)}

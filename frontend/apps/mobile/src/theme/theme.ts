@@ -1,3 +1,5 @@
+import { leworkDark, leworkLight, radii as radiusTokens } from "@lework/design-tokens";
+
 export type ColorScheme = "light" | "dark";
 
 /**
@@ -12,6 +14,9 @@ export type ThemeMode = "system" | "light" | "dark";
  *
  * 页面只引用语义名，不直接写色值：亮色和暗色各给一套实现，组件不需要知道
  * 自己当前处在哪种主题里，也不会出现「页面亮、代码块暗」的混搭。
+ *
+ * 亮色取值来自 @lework/design-tokens，与 apps/web 的 --lework-* 保持同源；
+ * 暗色由 design-tokens 维护（Web 目前只有亮色壳）。
  */
 export interface ThemeColors {
 	/** 页面底色，也是导航器的 scene 背景。 */
@@ -22,6 +27,9 @@ export interface ThemeColors {
 	surfaceMuted: string;
 	/** 再深一层的分隔区域，例如工具卡片的展开区。 */
 	surfaceSubtle: string;
+	/** 抽屉、侧栏的品牌浅蓝底。 */
+	sidebarBackground: string;
+	sidebarBorder: string;
 	border: string;
 	/** 几乎不可见的分隔线，例如列表行之间。 */
 	borderSubtle: string;
@@ -33,12 +41,18 @@ export interface ThemeColors {
 	textSecondary: string;
 	/** 时间戳、占位符等弱化文字，仍需保持 3:1。 */
 	textMuted: string;
+	/** 更弱的一层，例如输入框提示、日期。 */
+	textSubtle: string;
 	/** 链接、选中态、品牌色。 */
 	accent: string;
 	onAccent: string;
-	/** 主按钮底色；亮色主题是近黑，暗色主题用蓝色。 */
+	/** 主按钮底色；与 Web 一致使用品牌靛蓝。 */
 	action: string;
 	actionText: string;
+	/** 选中行、导航激活态的品牌浅底。 */
+	primarySoft: string;
+	primarySofter: string;
+	focusRing: string;
 	messageBubble: string;
 	userBubble: string;
 	userBubbleText: string;
@@ -67,90 +81,110 @@ export interface ThemeColors {
 export interface Theme {
 	scheme: ColorScheme;
 	colors: ThemeColors;
+	/** 与 Web --lework-radius-* 对齐的圆角尺度。 */
+	radii: typeof radiusTokens;
 }
+
+const lightColors: ThemeColors = {
+	background: leworkLight.appBg,
+	surface: leworkLight.surface,
+	surfaceMuted: leworkLight.surfaceSoft,
+	surfaceSubtle: "#f1f5f9",
+	sidebarBackground: leworkLight.sidebarBg,
+	sidebarBorder: leworkLight.sidebarBorder,
+	border: leworkLight.controlBorder,
+	borderSubtle: leworkLight.chatBorder,
+	borderStrong: "#bcc8de",
+	text: leworkLight.text,
+	textStrong: leworkLight.textStrong,
+	textSecondary: "#475569",
+	textMuted: leworkLight.textMuted,
+	textSubtle: leworkLight.textSubtle,
+	accent: leworkLight.primary,
+	onAccent: "#ffffff",
+	action: leworkLight.primary,
+	actionText: "#ffffff",
+	primarySoft: leworkLight.primarySoft,
+	primarySofter: leworkLight.primarySofter,
+	focusRing: leworkLight.focusRing,
+	messageBubble: leworkLight.chatAiBg,
+	userBubble: leworkLight.chatUserBg,
+	userBubbleText: leworkLight.chatUserText,
+	codeBackground: leworkLight.surfaceSoft,
+	codeText: leworkLight.chatText,
+	inlineCodeBackground: leworkLight.primarySofter,
+	inlineCodeText: leworkLight.text,
+	inputBackground: leworkLight.chatInputBg,
+	inputBorder: leworkLight.chatInputBorder,
+	placeholder: leworkLight.chatPlaceholder,
+	danger: "#b91c1c",
+	dangerSurface: "#fef2f2",
+	warning: "#b45309",
+	warningSurface: "#fffbeb",
+	warningBorder: "#f59e0b",
+	success: "#166534",
+	offline: "#6b7280",
+	badge: "#ef4444",
+	badgeText: "#ffffff",
+	modalBackdrop: "rgba(15, 23, 42, 0.28)",
+	backdrop: "#0f172a",
+};
+
+const darkColors: ThemeColors = {
+	background: leworkDark.appBg,
+	surface: leworkDark.surface,
+	surfaceMuted: leworkDark.surfaceSoft,
+	surfaceSubtle: "#1e293b",
+	sidebarBackground: leworkDark.sidebarBg,
+	sidebarBorder: leworkDark.sidebarBorder,
+	border: leworkDark.controlBorder,
+	borderSubtle: "#1e293b",
+	borderStrong: "#475569",
+	text: leworkDark.text,
+	textStrong: leworkDark.textStrong,
+	textSecondary: "#94a3b8",
+	textMuted: leworkDark.textMuted,
+	textSubtle: leworkDark.textSubtle,
+	accent: leworkDark.primary,
+	onAccent: leworkDark.appBg,
+	action: leworkDark.primary,
+	actionText: leworkDark.appBg,
+	primarySoft: leworkDark.primarySoft,
+	primarySofter: leworkDark.primarySofter,
+	focusRing: leworkDark.focusRing,
+	messageBubble: leworkDark.chatAiBg,
+	userBubble: leworkDark.chatUserBg,
+	userBubbleText: leworkDark.chatUserText,
+	codeBackground: "#020617",
+	codeText: "#e2e8f0",
+	inlineCodeBackground: "#312e81",
+	inlineCodeText: "#e0e7ff",
+	inputBackground: leworkDark.chatInputBg,
+	inputBorder: leworkDark.chatInputBorder,
+	placeholder: leworkDark.chatPlaceholder,
+	danger: "#f87171",
+	dangerSurface: "#3f1d1d",
+	warning: "#fbbf24",
+	warningSurface: "#3b2a12",
+	warningBorder: "#b45309",
+	success: "#4ade80",
+	offline: "#94a3b8",
+	badge: "#ef4444",
+	badgeText: "#ffffff",
+	modalBackdrop: "rgba(0, 0, 0, 0.55)",
+	backdrop: "#000000",
+};
 
 export const lightTheme: Theme = {
 	scheme: "light",
-	colors: {
-		background: "#ffffff",
-		surface: "#ffffff",
-		surfaceMuted: "#f8fafc",
-		surfaceSubtle: "#f1f5f9",
-		border: "#e2e8f0",
-		borderSubtle: "#eef2f7",
-		borderStrong: "#cbd5e1",
-		text: "#0f172a",
-		textStrong: "#334155",
-		textSecondary: "#475569",
-		textMuted: "#6b7a90",
-		accent: "#2563eb",
-		onAccent: "#ffffff",
-		action: "#0f172a",
-		actionText: "#ffffff",
-		messageBubble: "#f1f5f9",
-		userBubble: "#2563eb",
-		userBubbleText: "#ffffff",
-		codeBackground: "#f1f5f9",
-		codeText: "#0f172a",
-		inlineCodeBackground: "#e2e8f0",
-		inlineCodeText: "#0f172a",
-		inputBackground: "#f8fafc",
-		inputBorder: "#e2e8f0",
-		placeholder: "#6b7a90",
-		danger: "#b91c1c",
-		dangerSurface: "#fef2f2",
-		warning: "#b45309",
-		warningSurface: "#fffbeb",
-		warningBorder: "#f59e0b",
-		success: "#166534",
-		offline: "#6b7280",
-		badge: "#ef4444",
-		badgeText: "#ffffff",
-		modalBackdrop: "rgba(15, 23, 42, 0.28)",
-		backdrop: "#0f172a",
-	},
+	colors: lightColors,
+	radii: radiusTokens,
 };
 
 export const darkTheme: Theme = {
 	scheme: "dark",
-	colors: {
-		background: "#0b1220",
-		surface: "#111827",
-		surfaceMuted: "#0f172a",
-		surfaceSubtle: "#1e293b",
-		border: "#334155",
-		borderSubtle: "#1e293b",
-		borderStrong: "#475569",
-		text: "#e2e8f0",
-		textStrong: "#cbd5e1",
-		textSecondary: "#94a3b8",
-		textMuted: "#7c8ba1",
-		accent: "#60a5fa",
-		onAccent: "#0b1220",
-		action: "#2563eb",
-		actionText: "#ffffff",
-		messageBubble: "#1e293b",
-		userBubble: "#2563eb",
-		userBubbleText: "#ffffff",
-		codeBackground: "#020617",
-		codeText: "#e2e8f0",
-		inlineCodeBackground: "#334155",
-		inlineCodeText: "#e2e8f0",
-		inputBackground: "#0f172a",
-		inputBorder: "#334155",
-		placeholder: "#7c8ba1",
-		danger: "#f87171",
-		dangerSurface: "#3f1d1d",
-		warning: "#fbbf24",
-		warningSurface: "#3b2a12",
-		warningBorder: "#b45309",
-		success: "#4ade80",
-		offline: "#94a3b8",
-		badge: "#ef4444",
-		badgeText: "#ffffff",
-		modalBackdrop: "rgba(0, 0, 0, 0.55)",
-		backdrop: "#000000",
-	},
+	colors: darkColors,
+	radii: radiusTokens,
 };
 
 /** themeFor 把系统配色映射到具体色板；未知值按亮色处理。 */

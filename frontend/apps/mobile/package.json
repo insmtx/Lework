@@ -6,11 +6,13 @@
 	"scripts": {
 		"start": "expo start",
 		"android": "expo start --android",
+		"assets": "node scripts/generate-assets.mjs",
 		"typecheck": "tsc --noEmit",
 		"test": "vitest run"
 	},
 	"dependencies": {
 		"@lework/api": "workspace:*",
+		"@lework/design-tokens": "workspace:*",
 		"@lework/tool-view": "workspace:*",
 		"expo": "~58.0.24",
 		"expo-camera": "~58.0.14",
@@ -30,6 +32,7 @@
 	},
 	"devDependencies": {
 		"@types/react": "~19.3.0",
+		"sharp": "^0.34.5",
 		"typescript": "~6.0.3",
 		"vitest": "catalog:"
 	}

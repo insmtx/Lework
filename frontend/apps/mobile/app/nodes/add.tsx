@@ -1,7 +1,7 @@
 import type { ClaimPreview, NodeView } from "@lework/api";
 import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, Pressable, Text, TextInput, View } from "react-native";
+import { Alert, Pressable, Text, TextInput, View } from "react-native";
 
 import { createClient } from "../../src/api/client";
 import {
@@ -14,9 +14,10 @@ import type { PairPayload } from "../../src/pairing/link";
 import { PairScanner } from "../../src/pairing/scanner";
 import { createSettingsStyles, SettingsPage, SettingsSection } from "../../src/settings/components";
 import { createSecureSettingsStore } from "../../src/settings/secure-store";
-import { authErrorMessage, saveServerAddress, type SessionDeps } from "../../src/settings/session";
+import { authErrorMessage, type SessionDeps, saveServerAddress } from "../../src/settings/session";
 import { useTheme, useThemedStyles } from "../../src/theme/use-theme";
 import { useAppShell, useScreenTitle } from "../../src/ui/app-shell-context";
+import { BrandSpinner } from "../../src/ui/loading";
 
 type Mode = "choose" | "input" | "preview";
 
@@ -48,7 +49,10 @@ export default function AddNodeScreen() {
 	const [attempt, setAttempt] = useState(0);
 
 	// 只有持有会话时才构造客户端：未登录时任何请求都必然 401，先送去登录。
-	const client = useMemo(() => (settings?.sessionToken ? createClient(settings) : null), [settings]);
+	const client = useMemo(
+		() => (settings?.sessionToken ? createClient(settings) : null),
+		[settings],
+	);
 
 	const goLogin = useCallback((nextCode: string, nextUrl: string) => {
 		router.replace({
@@ -62,7 +66,10 @@ export default function AddNodeScreen() {
 		if (settingsLoading || mode !== "preview") return;
 		if (!settings?.sessionToken) {
 			// 深链可能带着另一台控制面的地址；它比本地旧地址更可信。
-			const nextUrl = typeof params.url === "string" && params.url !== "" ? params.url : (settings?.baseUrl ?? "");
+			const nextUrl =
+				typeof params.url === "string" && params.url !== ""
+					? params.url
+					: (settings?.baseUrl ?? "");
 			goLogin(code, nextUrl);
 		}
 	}, [settingsLoading, settings?.sessionToken, settings?.baseUrl, params.url, mode, code, goLogin]);
@@ -129,14 +136,10 @@ export default function AddNodeScreen() {
 			return;
 		}
 		if (payload.baseUrl !== settings.baseUrl) {
-			Alert.alert(
-				"这是另一个控制面的码",
-				`${payload.baseUrl}\n\n切换控制面会退出当前登录。`,
-				[
-					{ text: "取消", style: "cancel" },
-					{ text: "切换", style: "destructive", onPress: () => void switchToServer(payload) },
-				],
-			);
+			Alert.alert("这是另一个控制面的码", `${payload.baseUrl}\n\n切换控制面会退出当前登录。`, [
+				{ text: "取消", style: "cancel" },
+				{ text: "切换", style: "destructive", onPress: () => void switchToServer(payload) },
+			]);
 			return;
 		}
 		setError(null);
@@ -203,7 +206,10 @@ export default function AddNodeScreen() {
 			) : null}
 
 			{mode === "input" ? (
-				<SettingsSection title="输入配对码" hint="在 lework agent 的输出里找 5 位码；不区分大小写。">
+				<SettingsSection
+					title="输入配对码"
+					hint="在 lework agent 的输出里找 5 位码；不区分大小写。"
+				>
 					<TextInput
 						style={styles.input}
 						value={code}
@@ -237,7 +243,7 @@ export default function AddNodeScreen() {
 				<SettingsSection title="确认添加" hint="确认后这台电脑会出现在「我的电脑」里。">
 					{busy ? (
 						<View style={{ paddingVertical: 12 }}>
-							<ActivityIndicator color={theme.colors.accent} />
+							<BrandSpinner size={22} />
 						</View>
 					) : null}
 

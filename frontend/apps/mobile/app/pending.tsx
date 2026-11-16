@@ -1,25 +1,17 @@
 import { router } from "expo-router";
 import { useMemo } from "react";
-import {
-	ActivityIndicator,
-	FlatList,
-	Pressable,
-	RefreshControl,
-	StyleSheet,
-	Text,
-	View,
-} from "react-native";
+import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 
 import { sessionRoute } from "../src/config";
 import { pendingRows } from "../src/pending/derive";
 import type { Theme } from "../src/theme/theme";
-import { useTheme, useThemedStyles } from "../src/theme/use-theme";
+import { useThemedStyles } from "../src/theme/use-theme";
 import { useAppShell, useScreenTitle } from "../src/ui/app-shell-context";
+import { LoadingScreen } from "../src/ui/loading";
 
 /** 待审批：从总览快照汇总所有 pending 会话，点进去逐个处理。 */
 export default function PendingScreen() {
 	useScreenTitle("待审批");
-	const theme = useTheme();
 	const styles = useThemedStyles(createStyles);
 	const {
 		settings,
@@ -42,11 +34,7 @@ export default function PendingScreen() {
 	);
 
 	if (settingsLoading) {
-		return (
-			<View style={styles.center}>
-				<ActivityIndicator color={theme.colors.accent} />
-			</View>
-		);
+		return <LoadingScreen text="正在加载审批…" />;
 	}
 
 	if (!settings) {

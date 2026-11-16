@@ -1,7 +1,6 @@
 import { router } from "expo-router";
 import { type ComponentRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-	ActivityIndicator,
 	Alert,
 	KeyboardAvoidingView,
 	Platform,
@@ -21,6 +20,7 @@ import { resolveTaskTarget } from "../src/projects/model";
 import type { Theme } from "../src/theme/theme";
 import { useTheme, useThemedStyles } from "../src/theme/use-theme";
 import { useAppShell, useScreenTitle } from "../src/ui/app-shell-context";
+import { BrandSpinner } from "../src/ui/loading";
 import { DrawerButton } from "../src/ui/top-bar";
 
 // 首页草稿不跟随项目切换：用户还没决定发给谁时，字不能丢。
@@ -152,7 +152,7 @@ export default function HomeScreen() {
 							style={[styles.send, !canSend && styles.sendDisabled]}
 						>
 							{sending ? (
-								<ActivityIndicator color={theme.colors.actionText} />
+								<BrandSpinner color={theme.colors.actionText} />
 							) : (
 								<Text style={styles.sendText}>发送</Text>
 							)}
