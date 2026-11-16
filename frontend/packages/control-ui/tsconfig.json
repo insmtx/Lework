@@ -1,0 +1,4 @@
+{
+	"extends": "@lework/tsconfig/react-library.json",
+	"include": ["src"]
+}

@@ -21,7 +21,7 @@ import {
 	X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import type { NodeHealth, NodeView, Session } from "../lib/types";
+import type { NodeHealth, NodeView, Session } from "../types";
 
 interface NodeSidebarProps {
 	nodes: NodeView[];
@@ -92,7 +92,7 @@ export function NodeSidebar({
 	onStopOpenCode,
 	pendingCounts,
 }: NodeSidebarProps) {
-	const [directory, setDirectory] = useState("");
+	const [directory, setDirectory] = useState(sessionDirectory);
 	const [creating, setCreating] = useState(false);
 	const [createError, setCreateError] = useState<string | null>(null);
 	const [filterDraft, setFilterDraft] = useState(sessionDirectory);
@@ -106,6 +106,9 @@ export function NodeSidebar({
 
 	useEffect(() => {
 		setFilterDraft(sessionDirectory);
+		// 工作区详情把目录锁成 workspace 根；新建会话默认落在同一个根，
+		// 否则新会话会立刻被过滤器排除、在列表里消失。
+		setDirectory(sessionDirectory);
 	}, [sessionDirectory]);
 
 	// 手机输入绝对路径很痛苦：把已有会话的工作目录做成快捷芯片。

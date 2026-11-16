@@ -9,18 +9,13 @@
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
+		"@lework/api": "workspace:*",
+		"@lework/control-ui": "workspace:*",
 		"@lework/styles": "workspace:*",
-		"@lework/tool-view": "workspace:*",
 		"@lework/ui": "workspace:*",
-		"@xterm/addon-fit": "^0.11.0",
-		"@xterm/xterm": "^6.0.0",
-		"clsx": "catalog:",
-		"lucide-react": "catalog:",
 		"next": "^16.2.3",
 		"react": "catalog:",
-		"react-dom": "catalog:",
-		"tailwind-merge": "catalog:",
-		"@lework/api": "workspace:*"
+		"react-dom": "catalog:"
 	},
 	"devDependencies": {
 		"@lework/tsconfig": "workspace:*",

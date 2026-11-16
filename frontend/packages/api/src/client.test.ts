@@ -298,7 +298,9 @@ describe("认证、认领与移除节点", () => {
 	it("claimPreview / claimConfirm 使用 /api/claim/{code}", async () => {
 		// 两次请求各要一个 Response：body 只能读一次，复用同一个实例会报
 		// "Body has already been read"。
-		stubFetch(() => new Response(JSON.stringify({ code: "AB234", node_name: "box" }), { status: 200 }));
+		stubFetch(
+			() => new Response(JSON.stringify({ code: "AB234", node_name: "box" }), { status: 200 }),
+		);
 		const api = createApiClient({ baseUrl: "http://box:8787" });
 		await api.claimPreview("ab234");
 		expect(String(fetchMock.mock.calls[0]?.[0])).toBe("http://box:8787/api/claim/ab234");
@@ -314,6 +316,57 @@ describe("认证、认领与移除节点", () => {
 		).resolves.toBeNull();
 		expect(String(fetchMock.mock.calls[0]?.[0])).toBe("http://box:8787/api/nodes/node_1");
 		expect((fetchMock.mock.calls[0]?.[1] as RequestInit).method).toBe("DELETE");
+	});
+
+	it("createClaim 提交节点名并返回短期码", async () => {
+		stubFetch(
+			new Response(JSON.stringify({ code: "AB234", node_name: "box", expires_at: "t" }), {
+				status: 200,
+			}),
+		);
+		const claim = await createApiClient({ baseUrl: "http://box:8787" }).createClaim("box");
+
+		expect(String(fetchMock.mock.calls[0]?.[0])).toBe("http://box:8787/api/node-claims");
+		const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+		expect(init.method).toBe("POST");
+		expect(JSON.parse(String(init.body))).toEqual({ node_name: "box" });
+		expect(claim.code).toBe("AB234");
+	});
+
+	it("createClaim 省略节点名时提交空串而不是 undefined", async () => {
+		stubFetch(new Response(JSON.stringify({ code: "AB234" }), { status: 200 }));
+		await createApiClient().createClaim();
+		const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+		expect(JSON.parse(String(init.body))).toEqual({ node_name: "" });
+	});
+
+	it("getNode 与 getNodeProjects 走节点子路径", async () => {
+		// 两个请求各要一个 Response，否则第二次会撞上 body 已被读取。
+		stubFetch(
+			() =>
+				new Response(
+					JSON.stringify({
+						id: "node 1",
+						projects: [{ id: "p1", canonical: "/w/repo", vcs: "git" }],
+					}),
+					{ status: 200 },
+				),
+		);
+		const api = createApiClient({ baseUrl: "http://box:8787" });
+		await api.getNode("node 1");
+		expect(String(fetchMock.mock.calls[0]?.[0])).toBe("http://box:8787/api/nodes/node%201");
+
+		await expect(api.getNodeProjects("node 1")).resolves.toEqual([
+			{ id: "p1", canonical: "/w/repo", vcs: "git" },
+		]);
+		expect(String(fetchMock.mock.calls[1]?.[0])).toBe(
+			"http://box:8787/api/nodes/node%201/projects",
+		);
+	});
+
+	it("getNodeProjects 缺省 projects 时返回空数组", async () => {
+		stubFetch(new Response(JSON.stringify({}), { status: 200 }));
+		await expect(createApiClient().getNodeProjects("n1")).resolves.toEqual([]);
 	});
 
 	it("401 触发 onUnauthorized 钩子并照常抛错", async () => {
