@@ -4,8 +4,8 @@
 
 | 产物 | 内容 | 命名 |
 |---|---|---|
-| 后端 | 单文件 `lework` 二进制，**已内嵌控制面界面**，同时包含 `lework serve` 与 `lework agent` | `lework_<version>_<os>_<arch>.tar.gz`（Windows 为 `.zip`） |
-| Android | 可直接安装的 APK | `lework-android-<version>.apk` |
+| 后端 | 单文件 `lework` 二进制，**已内嵌控制面界面**，同时包含 `lework serve` 与 `lework agent` | `lework-<os>_<arch>-<version>.tar.gz`（Windows 为 `.zip`） |
+| Android | 可直接安装的 APK，以及供 COS 分发的同名 zip | `lework-android-<version>.apk` / `lework-android-<version>.zip` |
 | 桌面端 | Electron 安装包与更新元数据（mac arm64/x64、win x64、linux x64） | `Lework-<version>-<platform>-<arch>.<ext>` |
 | 校验 | 上述产物的 SHA-256 | `SHA256SUMS-release.txt` |
 
@@ -27,9 +27,9 @@ application/
   <version>/
     SHA256SUMS.txt
     server/
-      lework_<version>_<os>_<arch>.tar.gz    # Windows 为 .zip
+      lework-<os>_<arch>-<version>.tar.gz    # Windows 为 .zip
     android/
-      lework-android-<version>.apk
+      lework-android-<version>.zip           # COS 不允许下载 apk，只放 zip
     darwin/
       arm64/  latest-mac.yml + dmg/zip/blockmap
       x64/    latest-mac.yml + dmg/zip/blockmap
