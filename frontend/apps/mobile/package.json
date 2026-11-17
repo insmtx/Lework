@@ -34,7 +34,7 @@
 		"react-native-sse": "1.2.1"
 	},
 	"devDependencies": {
-		"@types/react": "~19.3.0",
+		"@types/react": "catalog:",
 		"sharp": "^0.34.5",
 		"typescript": "~6.0.3",
 		"vitest": "catalog:"
