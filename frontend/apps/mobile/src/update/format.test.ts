@@ -7,14 +7,14 @@ describe("describeVersion", () => {
 		expect(describeVersion(null, { phase: "idle" })).toBe("未知");
 	});
 	it("shows update state when available", () => {
-		expect(describeVersion("0.8.0", { phase: "available", version: "0.9.0", apkUrl: "u" })).toBe(
-			"0.9.0 可更新",
-		);
+		expect(
+			describeVersion("0.8.0", { phase: "available", version: "0.9.0", downloadUrl: "u" }),
+		).toBe("0.9.0 可更新");
 		expect(
 			describeVersion("0.8.0", {
 				phase: "downloading",
 				version: "0.9.0",
-				apkUrl: "u",
+				downloadUrl: "u",
 				progress: 10,
 			}),
 		).toBe("0.9.0 下载中");

@@ -15,7 +15,8 @@ import {
 import { Alert, AppState } from "react-native";
 
 import { type CheckResult, checkForUpdate } from "./check";
-import { downloadApk, updateApkPath } from "./download";
+import { downloadPackage, updatePackagePath } from "./download";
+import { extractApkFromZip, extractedApkPath } from "./extract";
 import { installApk } from "./install";
 import { shouldCheckOnResume, UPDATE_CHECK_INTERVAL_MS, UPDATE_SNOOZE_MS } from "./schedule";
 import { MOBILE_APP_ID } from "./source";
@@ -72,14 +73,14 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
 		const controller = downloadRef.current;
 		if (!controller) return;
 		downloadRef.current = null;
-		// downloadApk 收到 abort 后会 cancelAsync + 清理半成品并 reject；
+		// downloadPackage 收到 abort 后会 cancelAsync + 清理半成品并 reject；
 		// 其 rejection 在下方按「已取消」静默忽略。
 		controller.abort();
 	}, []);
 
 	// 发起一次下载。调用方保证状态处于 available，或带完整版本信息的 error
 	// （原地重试）；并发保护只靠 downloadRef 的单一任务约定。
-	const startDownload = useCallback((version: string, apkUrl: string): void => {
+	const startDownload = useCallback((version: string, downloadUrl: string): void => {
 		if (downloadRef.current) return;
 		const controller = new AbortController();
 		downloadRef.current = controller;
@@ -91,9 +92,9 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
 				const { cacheDirectory } = await import("expo-file-system/legacy");
 				// 缓存目录理论上只在原生宿主缺失时为 null：按失败收场，状态机离开 downloading。
 				if (!cacheDirectory) throw new Error("无法访问缓存目录，不能下载更新文件");
-				const fileUri = await downloadApk({
-					url: apkUrl,
-					destination: updateApkPath(cacheDirectory, version),
+				const zipUri = await downloadPackage({
+					url: downloadUrl,
+					destination: updatePackagePath(cacheDirectory, version),
 					signal: controller.signal,
 					onProgress: (percent) => {
 						const now = Date.now();
@@ -103,6 +104,12 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
 							dispatch({ type: "download-progress", progress: percent });
 						}
 					},
+				});
+				if (controller.signal.aborted || !mountedRef.current) return;
+				// 发布产物是 zip（COS 禁止匿名下载 apk），解压出 apk 后再交给安装器。
+				const fileUri = await extractApkFromZip({
+					zipUri,
+					apkUri: extractedApkPath(cacheDirectory, version),
 				});
 				if (controller.signal.aborted || !mountedRef.current) return;
 				dispatch({ type: "download-finished", fileUri });
@@ -150,9 +157,13 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
 					result = await checkForUpdate({ currentVersion });
 					if (!mountedRef.current) return;
 					if (result.kind === "update") {
-						dispatch({ type: "update-available", version: result.version, apkUrl: result.apkUrl });
+						dispatch({
+							type: "update-available",
+							version: result.version,
+							downloadUrl: result.downloadUrl,
+						});
 						// 发现新版本立即开始后台下载（与桌面端一致），弹窗同步显示进度。
-						startDownload(result.version, result.apkUrl);
+						startDownload(result.version, result.downloadUrl);
 						return;
 					}
 					if (result.kind === "none") {
@@ -182,8 +193,8 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
 		const current = stateRef.current;
 		// 下载失败仍持有版本信息时原地重新下载，省一次版本检查；
 		// 其余失败（如检查、安装失败）退化为一次手动检查。
-		if (current.phase === "error" && current.version && current.apkUrl) {
-			startDownload(current.version, current.apkUrl);
+		if (current.phase === "error" && current.version && current.downloadUrl) {
+			startDownload(current.version, current.downloadUrl);
 			return;
 		}
 		runCheck(true);

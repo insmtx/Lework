@@ -271,6 +271,9 @@ importers:
       expo-status-bar:
         specifier: 58.0.5
         version: 58.0.5(expo@58.0.24)(react-native@0.88.1(@babel/core@7.29.7)(@react-native/metro-config@0.88.1(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)
+      fflate:
+        specifier: ^0.8.3
+        version: 0.8.3
       react:
         specifier: 19.3.0
         version: 19.3.0
@@ -4327,6 +4330,9 @@ packages:
 
   fetch-nodeshim@0.4.10:
     resolution: {integrity: sha512-m6I8ALe4L4XpdETy7MJZWs6L1IVMbjs99bwbpIKphxX+0CTns4IKDWJY0LWfr4YsFjfg+z1TjzTMU8lKl8rG0w==}
+
+  fflate@0.8.3:
+    resolution: {integrity: sha512-tbZNuJrLwGUp3zshBtdy4W+ORxZuIh8a5ilyIEQDC5rY1f3U20JMry0Ll3WBzU58EZKsEuJFXhb5gwv8CsPvgA==}
 
   figures@6.1.0:
     resolution: {integrity: sha512-d+l3qxjSesT4V7v2fh+QnmFnUWv9lSpjarhShNTgBOfA0ttejbQUAlHLitbjkoRiDulW0OPoQPYIGhIC8ohejg==}
@@ -11074,6 +11080,8 @@ snapshots:
       web-streams-polyfill: 3.3.3
 
   fetch-nodeshim@0.4.10: {}
+
+  fflate@0.8.3: {}
 
   figures@6.1.0:
     dependencies:
