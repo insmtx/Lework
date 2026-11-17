@@ -174,9 +174,10 @@ lework serve --public-url http://dev.ckeyer.com \
 
 发版走 GitHub Actions：推送 `vX.Y.Z` tag 后，`.github/workflows/release.yml`
 会执行 `expo prebuild` + Gradle `assembleRelease`，把
-`lework-android-X.Y.Z.apk` 挂到该 tag 的 GitHub Release（完整流程见
-[release.md](release.md)）。CI 使用 prebuild 模板自带的 debug keystore 签名，
-不需要任何 secret，适合内部分发；debug 签名不能上架 Google Play。
+`lework-android-X.Y.Z.apk` 与同名 zip 挂到该 tag 的 GitHub Release（完整流程见
+[release.md](release.md)）。COS 只分发 zip——桶策略不允许匿名下载 `.apk`，
+App 内置升级也改为下载 zip 后在本地解压。CI 使用 prebuild 模板自带的 debug
+keystore 签名，不需要任何 secret，适合内部分发；debug 签名不能上架 Google Play。
 
 本地复现同样的构建（需要 Java 17 与 Android SDK）：
 
@@ -230,17 +231,18 @@ Settings 里的控制面地址推导，防止控制面搬家把更新流量带�
 - 设置 →「版本」行随时可手动检查；失败会弹可读的错误提示。
 
 自动检查失败保持静默（回到 idle 等下一次时机），不打扰用户。流程是
-`GET ${BASE}/LATEST.txt?t=<时间戳>` 取最新版本号、比较 semver，再对 APK 产物
-做 `HEAD` 确认已上传，二者齐备才算「有更新」。
+`GET ${BASE}/LATEST.txt?t=<时间戳>` 取最新版本号、比较 semver，再对更新包
+`android/lework-android-<version>.zip` 做 `HEAD` 确认已上传，二者齐备才算「有更新」。
 
 ### 下载与安装
 
 发现新版本后立即在后台开始下载（进度弹窗显示「发现新版本 vX · 正在下载
-xx%」），目标路径为缓存目录下的 `lework-update-<version>.apk`，下载前会删除
-同名旧半成品。两个出口语义不同：「稍后」中止进行中的下载，并在 5 分钟后重新
-检查、再次提示（暂缓窗口内的定时与回前台补查让路，不会提前弹出）；「取消下载」
-只中止并收起提示，不安排任何自动重查，直到下一次常规检查时机或用户手动检查。
-App 被杀后不续传，下次启动重新检查、重新下载。
+xx%」），目标路径为缓存目录下的 `lework-update-<version>.zip`，下载前会删除
+同名旧半成品。下载完成后解压出唯一的 APK（`lework-update-<version>.apk`）并
+删掉 zip，再提示「更新已下载」。两个出口语义不同：「稍后」中止进行中的下载，
+并在 5 分钟后重新检查、再次提示（暂缓窗口内的定时与回前台补查让路，不会提前
+弹出）；「取消下载」只中止并收起提示，不安排任何自动重查，直到下一次常规检查
+时机或用户手动检查。App 被杀后不续传，下次启动重新检查、重新下载。
 
 下载完成提示「更新已下载」，点「立即安装」通过 `expo-intent-launcher` 调起
 系统安装器（`android.intent.action.VIEW` + `application/vnd.android.package-archive`）。
