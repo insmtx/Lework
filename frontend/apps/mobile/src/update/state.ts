@@ -1,19 +1,19 @@
 // 更新流程的纯状态机：UI 与下载/安装代码只 dispatch UpdateAction，不直接改状态。
 // reduceUpdateState 对非法迁移一律原样返回（不抛错）。error 保留出错前的版本与
-// 文件信息：version 与 apkUrl 齐全时 download-started 视为原地重试，dismissed 则是
+// 文件信息：version 与 downloadUrl 齐全时 download-started 视为原地重试，dismissed 则是
 // 取消下载（下载层负责 abort 真实任务）。
 export type UpdateState =
 	| { phase: "idle" }
 	| { phase: "checking" }
-	| { phase: "available"; version: string; apkUrl: string }
-	| { phase: "downloading"; version: string; apkUrl: string; progress: number }
-	| { phase: "downloaded"; version: string; apkUrl: string; fileUri: string }
+	| { phase: "available"; version: string; downloadUrl: string }
+	| { phase: "downloading"; version: string; downloadUrl: string; progress: number }
+	| { phase: "downloaded"; version: string; downloadUrl: string; fileUri: string }
 	| { phase: "installing"; version: string; fileUri: string }
-	| { phase: "error"; message: string; version?: string; apkUrl?: string; fileUri?: string };
+	| { phase: "error"; message: string; version?: string; downloadUrl?: string; fileUri?: string };
 
 export type UpdateAction =
 	| { type: "check-started" }
-	| { type: "update-available"; version: string; apkUrl: string }
+	| { type: "update-available"; version: string; downloadUrl: string }
 	| { type: "no-update" }
 	| { type: "download-started" }
 	| { type: "download-progress"; progress: number }
@@ -31,17 +31,27 @@ export function reduceUpdateState(state: UpdateState, action: UpdateAction): Upd
 			// busy 阶段不允许中途替换目标版本，其余阶段（含 idle 直推）接受新版本。
 			return isBusy(state)
 				? state
-				: { phase: "available", version: action.version, apkUrl: action.apkUrl };
+				: { phase: "available", version: action.version, downloadUrl: action.downloadUrl };
 		case "no-update":
 			return state.phase === "checking" ? { phase: "idle" } : state;
 		case "download-started":
 			// 首次下载只从 available；error 若仍持有完整版本信息则走原地重试，
 			// 转入 downloading 并清零进度（message 随状态替换自然消失）。
 			if (state.phase === "available") {
-				return { phase: "downloading", version: state.version, apkUrl: state.apkUrl, progress: 0 };
+				return {
+					phase: "downloading",
+					version: state.version,
+					downloadUrl: state.downloadUrl,
+					progress: 0,
+				};
 			}
-			if (state.phase === "error" && state.version && state.apkUrl) {
-				return { phase: "downloading", version: state.version, apkUrl: state.apkUrl, progress: 0 };
+			if (state.phase === "error" && state.version && state.downloadUrl) {
+				return {
+					phase: "downloading",
+					version: state.version,
+					downloadUrl: state.downloadUrl,
+					progress: 0,
+				};
 			}
 			return state;
 		case "download-progress":
@@ -52,12 +62,12 @@ export function reduceUpdateState(state: UpdateState, action: UpdateAction): Upd
 				? {
 						phase: "downloaded",
 						version: state.version,
-						apkUrl: state.apkUrl,
+						downloadUrl: state.downloadUrl,
 						fileUri: action.fileUri,
 					}
 				: state;
 		case "install-started":
-			// 安装只需文件本身，不再携带 apkUrl；弹窗关闭（isUpdateVisible=false）。
+			// 安装只需文件本身，不再携带 downloadUrl；弹窗关闭（isUpdateVisible=false）。
 			return state.phase === "downloaded"
 				? { phase: "installing", version: state.version, fileUri: state.fileUri }
 				: state;
@@ -66,7 +76,10 @@ export function reduceUpdateState(state: UpdateState, action: UpdateAction): Upd
 		case "dismissed":
 			// 关闭弹窗回到 idle：downloading 时即为「取消下载」入口，调用方需同时
 			// abort 真实下载任务；installing 由系统安装器接管，此处不可中断。
-			return state.phase === "available" || state.phase === "downloading" || state.phase === "downloaded" || state.phase === "error"
+			return state.phase === "available" ||
+				state.phase === "downloading" ||
+				state.phase === "downloaded" ||
+				state.phase === "error"
 				? { phase: "idle" }
 				: state;
 	}
@@ -104,9 +117,15 @@ function toError(state: UpdateState, message: string): UpdateState {
 			return { phase: "error", message };
 		case "available":
 		case "downloading":
-			return { phase: "error", message, version: state.version, apkUrl: state.apkUrl };
+			return { phase: "error", message, version: state.version, downloadUrl: state.downloadUrl };
 		case "downloaded":
-			return { phase: "error", message, version: state.version, apkUrl: state.apkUrl, fileUri: state.fileUri };
+			return {
+				phase: "error",
+				message,
+				version: state.version,
+				downloadUrl: state.downloadUrl,
+				fileUri: state.fileUri,
+			};
 		case "installing":
 			return { phase: "error", message, version: state.version, fileUri: state.fileUri };
 	}

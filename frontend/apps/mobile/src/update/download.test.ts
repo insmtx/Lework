@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// downloadApk 在函数体内动态 import("expo-file-system/legacy")（ruling R3），
+// downloadPackage 在函数体内动态 import("expo-file-system/legacy")（ruling R3），
 // vi.mock 的模块注册同样拦截动态 import：这里给取消路径一个可编程的假任务。
 vi.mock("expo-file-system/legacy", () => ({
 	createDownloadResumable: vi.fn(),
@@ -9,15 +9,15 @@ vi.mock("expo-file-system/legacy", () => ({
 
 import { createDownloadResumable, deleteAsync } from "expo-file-system/legacy";
 
-import { clampProgress, downloadApk, updateApkPath } from "./download";
+import { clampProgress, downloadPackage, updatePackagePath } from "./download";
 
-const APK_URL = "https://example.test/0.9.0/android/lework-android-0.9.0.apk";
-const DESTINATION = "/cache/lework-update-0.9.0.apk";
+const PACKAGE_URL = "https://example.test/0.9.0/android/lework-android-0.9.0.zip";
+const DESTINATION = "/cache/lework-update-0.9.0.zip";
 
 describe("download helpers", () => {
 	it("builds a versioned cache path", () => {
-		expect(updateApkPath("/cache/", "0.8.0")).toBe("/cache/lework-update-0.8.0.apk");
-		expect(updateApkPath("/cache", "0.8.0")).toBe("/cache/lework-update-0.8.0.apk");
+		expect(updatePackagePath("/cache/", "0.8.0")).toBe("/cache/lework-update-0.8.0.zip");
+		expect(updatePackagePath("/cache", "0.8.0")).toBe("/cache/lework-update-0.8.0.zip");
 	});
 
 	it("clamps progress", () => {
@@ -27,7 +27,7 @@ describe("download helpers", () => {
 	});
 });
 
-describe("downloadApk cancellation", () => {
+describe("downloadPackage cancellation", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		// clearAllMocks 会连默认 resolved 值一起清掉：每个用例都要重新可 await。
@@ -56,8 +56,8 @@ describe("downloadApk cancellation", () => {
 		});
 
 		const controller = new AbortController();
-		const promise = downloadApk({
-			url: APK_URL,
+		const promise = downloadPackage({
+			url: PACKAGE_URL,
 			destination: DESTINATION,
 			signal: controller.signal,
 		});
@@ -81,7 +81,7 @@ describe("downloadApk cancellation", () => {
 		controller.abort();
 
 		await expect(
-			downloadApk({ url: APK_URL, destination: DESTINATION, signal: controller.signal }),
+			downloadPackage({ url: PACKAGE_URL, destination: DESTINATION, signal: controller.signal }),
 		).rejects.toThrow(/下载已取消/);
 		expect(createDownloadResumable).not.toHaveBeenCalled();
 	});
@@ -97,7 +97,7 @@ describe("downloadApk cancellation", () => {
 			// biome-ignore lint/suspicious/noThenProperty: 故意实现 thenable 以固定移交时序
 			then: (onFulfilled: (value: { uri: string; status: number }) => void) => {
 				controller.abort();
-				Promise.resolve({ uri: "file:///cache/lework-update-0.9.0.apk", status: 200 }).then(
+				Promise.resolve({ uri: "file:///cache/lework-update-0.9.0.zip", status: 200 }).then(
 					onFulfilled,
 				);
 			},
@@ -105,9 +105,9 @@ describe("downloadApk cancellation", () => {
 		vi.mocked(createDownloadResumable).mockReturnValue({ downloadAsync, cancelAsync } as never);
 
 		await expect(
-			downloadApk({ url: APK_URL, destination: DESTINATION, signal: controller.signal }),
+			downloadPackage({ url: PACKAGE_URL, destination: DESTINATION, signal: controller.signal }),
 		).rejects.toThrow(/下载已取消/);
-		// 竞态取消同样清理文件（此处删的是刚下完的 APK：上层已回 idle，残留下次也会重下）。
+		// 竞态取消同样清理文件（此处删的是刚下完的更新包：上层已回 idle，残留下次也会重下）。
 		expect(cancelAsync).toHaveBeenCalled();
 		expect(deleteAsync).toHaveBeenLastCalledWith(DESTINATION, { idempotent: true });
 	});

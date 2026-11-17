@@ -6,7 +6,7 @@ function response(status: number, body = ""): Response {
 }
 
 describe("checkForUpdate", () => {
-	it("returns update when remote is newer and apk exists", async () => {
+	it("returns update when remote is newer and package exists", async () => {
 		const calls: string[] = [];
 		const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
 			calls.push(`${init?.method ?? "GET"} ${String(input)}`);
@@ -19,16 +19,16 @@ describe("checkForUpdate", () => {
 		).resolves.toEqual({
 			kind: "update",
 			version: "0.8.0",
-			apkUrl:
-				"https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/0.8.0/android/lework-android-0.8.0.apk",
+			downloadUrl:
+				"https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/0.8.0/android/lework-android-0.8.0.zip",
 		});
 		expect(calls).toEqual([
 			"GET https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/LATEST.txt?t=123",
-			"HEAD https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/0.8.0/android/lework-android-0.8.0.apk",
+			"HEAD https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/0.8.0/android/lework-android-0.8.0.zip",
 		]);
 	});
 
-	it("returns none for same version, missing apk, or invalid body", async () => {
+	it("returns none for same version, missing package, or invalid body", async () => {
 		const same = (async () => response(200, "0.8.0\n")) as typeof fetch;
 		await expect(checkForUpdate({ currentVersion: "0.8.0", fetchImpl: same })).resolves.toEqual({
 			kind: "none",

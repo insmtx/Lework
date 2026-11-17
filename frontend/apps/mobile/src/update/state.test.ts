@@ -11,7 +11,7 @@ describe("reduceUpdateState", () => {
 		state = reduceUpdateState(state, {
 			type: "update-available",
 			version: "0.8.0",
-			apkUrl: "https://example.com/app.apk",
+			downloadUrl: "https://example.com/app.apk",
 		});
 		expect(state).toMatchObject({ phase: "available", version: "0.8.0" });
 
@@ -25,7 +25,7 @@ describe("reduceUpdateState", () => {
 		expect(state).toEqual({
 			phase: "downloaded",
 			version: "0.8.0",
-			apkUrl: "https://example.com/app.apk",
+			downloadUrl: "https://example.com/app.apk",
 			fileUri: "file:///a.apk",
 		});
 	});
@@ -34,7 +34,7 @@ describe("reduceUpdateState", () => {
 		let state = reduceUpdateState(idle, {
 			type: "update-available",
 			version: "0.8.0",
-			apkUrl: "https://example.com/app.apk",
+			downloadUrl: "https://example.com/app.apk",
 		});
 		state = reduceUpdateState(state, { type: "download-started" });
 		state = reduceUpdateState(state, { type: "download-progress", progress: 150 });
@@ -45,41 +45,46 @@ describe("reduceUpdateState", () => {
 			phase: "error",
 			message: "网络中断",
 			version: "0.8.0",
-			apkUrl: "https://example.com/app.apk",
+			downloadUrl: "https://example.com/app.apk",
 		});
 	});
 
 	it("returns to idle on no-update and dismissed", () => {
 		expect(reduceUpdateState({ phase: "checking" }, { type: "no-update" })).toEqual(idle);
-		expect(reduceUpdateState({ phase: "downloaded", version: "0.8.0", apkUrl: "u", fileUri: "f" }, { type: "dismissed" })).toEqual(idle);
+		expect(
+			reduceUpdateState(
+				{ phase: "downloaded", version: "0.8.0", downloadUrl: "u", fileUri: "f" },
+				{ type: "dismissed" },
+			),
+		).toEqual(idle);
 	});
 
 	it("cancels an active download via dismissed", () => {
 		const downloading: UpdateState = {
 			phase: "downloading",
 			version: "0.8.0",
-			apkUrl: "https://example.com/app.apk",
+			downloadUrl: "https://example.com/app.apk",
 			progress: 50,
 		};
 		expect(reduceUpdateState(downloading, { type: "dismissed" })).toEqual(idle);
 	});
 
-	it("retries download from error that kept version and apkUrl", () => {
+	it("retries download from error that kept version and downloadUrl", () => {
 		const errored: UpdateState = {
 			phase: "error",
 			message: "网络中断",
 			version: "0.8.0",
-			apkUrl: "https://example.com/app.apk",
+			downloadUrl: "https://example.com/app.apk",
 		};
 		expect(reduceUpdateState(errored, { type: "download-started" })).toEqual({
 			phase: "downloading",
 			version: "0.8.0",
-			apkUrl: "https://example.com/app.apk",
+			downloadUrl: "https://example.com/app.apk",
 			progress: 0,
 		});
 	});
 
-	it("ignores download-started from error without apkUrl", () => {
+	it("ignores download-started from error without downloadUrl", () => {
 		const errored: UpdateState = { phase: "error", message: "检查失败", version: "0.8.0" };
 		expect(reduceUpdateState(errored, { type: "download-started" })).toBe(errored);
 	});
@@ -87,8 +92,10 @@ describe("reduceUpdateState", () => {
 
 describe("isUpdateVisible", () => {
 	it("shows update states only", () => {
-		expect(isUpdateVisible({ phase: "available", version: "0.8.0", apkUrl: "u" })).toBe(true);
-		expect(isUpdateVisible({ phase: "downloading", version: "0.8.0", apkUrl: "u", progress: 1 })).toBe(true);
+		expect(isUpdateVisible({ phase: "available", version: "0.8.0", downloadUrl: "u" })).toBe(true);
+		expect(
+			isUpdateVisible({ phase: "downloading", version: "0.8.0", downloadUrl: "u", progress: 1 }),
+		).toBe(true);
 		expect(isUpdateVisible({ phase: "idle" })).toBe(false);
 		expect(isUpdateVisible({ phase: "checking" })).toBe(false);
 		expect(isUpdateVisible({ phase: "installing", version: "0.8.0", fileUri: "f" })).toBe(false);

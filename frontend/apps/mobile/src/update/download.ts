@@ -1,7 +1,7 @@
-// APK 下载适配器：包装 expo-file-system/legacy 的 DownloadResumable，对上层只暴露
+// 更新包（zip）下载适配器：包装 expo-file-system/legacy 的 DownloadResumable，对上层只暴露
 // 两个纯函数与一个 Promise<string>。原生模块按 ruling R3 处理：类型用 import type
 // 引入（编译期擦除，不影响 node 环境 vitest），运行时在 async 函数内动态 import；
-// 纯函数 updateApkPath / clampProgress 不触碰原生模块，可单独导入测试。
+// 纯函数 updatePackagePath / clampProgress 不触碰原生模块，可单独导入测试。
 import type {
 	DownloadOptions,
 	DownloadProgressData,
@@ -9,12 +9,12 @@ import type {
 	FileSystemNetworkTaskProgressCallback,
 } from "expo-file-system/legacy";
 
-type DownloadApkOptions = {
+type DownloadPackageOptions = {
 	url: string;
 	destination: string;
 	onProgress?: (percent: number) => void;
 	// 可选取消通道（controller ruling）：abort 时 cancelAsync 真实任务、清理半成品
-	// 并 reject「APK 下载已取消」。不传时行为与旧调用方完全一致。
+	// 并 reject「更新包下载已取消」。不传时行为与旧调用方完全一致。
 	signal?: AbortSignal;
 };
 
@@ -24,23 +24,23 @@ export function clampProgress(percent: number): number {
 	return Math.min(100, Math.max(0, Math.round(percent)));
 }
 
-// 目标路径约定为 cacheDirectory + "lework-update-<version>.apk"；结尾多余的分隔符
+// 目标路径约定为 cacheDirectory + "lework-update-<version>.zip"；结尾多余的分隔符
 // 由这里统一，避免调用方拼接习惯不同产生双斜杠路径。
-export function updateApkPath(cacheDirectory: string, version: string): string {
+export function updatePackagePath(cacheDirectory: string, version: string): string {
 	const base = cacheDirectory.endsWith("/") ? cacheDirectory : `${cacheDirectory}/`;
-	return `${base}lework-update-${version}.apk`;
+	return `${base}lework-update-${version}.zip`;
 }
 
-// downloadApk 成功时 resolve 已下载文件的 file:// URI；结果缺失或状态非 2xx 抛出
+// downloadPackage 成功时 resolve 已下载文件的 file:// URI；结果缺失或状态非 2xx 抛出
 // 可读的中文错误。任何失败路径都会先清理半成品文件再抛错（清理失败不掩盖原始错误），
-// 由调用方 dispatch failed / 决定重试。传入 signal 且被 abort 时抛「APK 下载已取消」，
+// 由调用方 dispatch failed / 决定重试。传入 signal 且被 abort 时抛「更新包下载已取消」，
 // 调用方据此静默收尾，不再向状态机 dispatch failed。
-export async function downloadApk({
+export async function downloadPackage({
 	url,
 	destination,
 	onProgress,
 	signal,
-}: DownloadApkOptions): Promise<string> {
+}: DownloadPackageOptions): Promise<string> {
 	const { createDownloadResumable, deleteAsync } = await import("expo-file-system/legacy");
 
 	const deleteQuietly = async (): Promise<void> => {
@@ -59,7 +59,7 @@ export async function downloadApk({
 
 	if (isAborted()) {
 		// 排队期间被取消（如 dismiss 先落）：任务还没创建，直接按取消收场。
-		throw new Error("APK 下载已取消");
+		throw new Error("更新包下载已取消");
 	}
 
 	const options: DownloadOptions = {};
@@ -96,21 +96,21 @@ export async function downloadApk({
 		// 取消与下载完成同帧竞态时以取消为准：上层已回到 idle，不能让它
 		// 突然收到 download-finished。
 		if (isAborted()) {
-			throw new Error("APK 下载已取消");
+			throw new Error("更新包下载已取消");
 		}
 		if (!result?.uri || result.status < 200 || result.status >= 300) {
-			throw new Error(`下载 APK 失败：HTTP ${result?.status ?? "未知"}`);
+			throw new Error(`下载更新包失败：HTTP ${result?.status ?? "未知"}`);
 		}
 		return result.uri;
 	} catch (error) {
 		await deleteQuietly();
 		if (isAborted()) {
-			throw new Error("APK 下载已取消");
+			throw new Error("更新包下载已取消");
 		}
-		if (error instanceof Error && error.message.startsWith("下载 APK 失败")) {
+		if (error instanceof Error && error.message.startsWith("下载更新包失败")) {
 			throw error; // 已经是可读错误，避免二次包装。
 		}
-		throw new Error(`下载 APK 失败：${error instanceof Error ? error.message : String(error)}`);
+		throw new Error(`下载更新包失败：${error instanceof Error ? error.message : String(error)}`);
 	} finally {
 		signal?.removeEventListener("abort", onAbort);
 	}

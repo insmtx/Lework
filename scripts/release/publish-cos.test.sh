@@ -6,8 +6,8 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/android" "$tmp/server" "$tmp/root"
-printf apk > "$tmp/android/lework-android-0.8.0.apk"
-printf tar > "$tmp/server/lework_0.8.0_linux_amd64.tar.gz"
+printf zip > "$tmp/android/lework-android-0.8.0.zip"
+printf tar > "$tmp/server/lework-linux_amd64-0.8.0.tar.gz"
 printf dmg > "$tmp/root/Lework-0.8.0-mac-arm64.dmg"
 
 # 稳定版本且现有 LATEST.txt 更旧：应上传产物、根目录安装包并推进 LATEST.txt。
@@ -16,8 +16,8 @@ out="$(DRY_RUN=1 UPDATE_LATEST_FILE=1 LATEST_TXT_EXISTING=0.7.9 ROOT_INSTALLER_D
   bash "$script_dir/publish-cos.sh" "$tmp" 0.8.0)"
 
 printf '%s' "$out" | grep -q "coscmd upload"
-printf '%s' "$out" | grep -q "application/0.8.0/android/lework-android-0.8.0.apk"
-printf '%s' "$out" | grep -q "application/0.8.0/server/lework_0.8.0_linux_amd64.tar.gz"
+printf '%s' "$out" | grep -q "application/0.8.0/android/lework-android-0.8.0.zip"
+printf '%s' "$out" | grep -q "application/0.8.0/server/lework-linux_amd64-0.8.0.tar.gz"
 printf '%s' "$out" | grep -q "application/Lework-0.8.0-mac-arm64.dmg"
 printf '%s' "$out" | grep -q "application/LATEST.txt"
 

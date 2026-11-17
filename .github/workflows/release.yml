@@ -1,6 +1,6 @@
 name: Release
 
-# tag 推送时一次性产出内嵌控制面界面的 lework 二进制与 Android APK，
+# tag 推送时一次性产出内嵌控制面界面的 lework 二进制与 Android APK（另附 zip 供 COS 分发），
 # 再统一挂到同一个 GitHub Release。桌面端仍由 desktop-release.yml 负责，
 # 后续合并进本工作流时把它的 build job 加进来即可。
 on:
@@ -194,7 +194,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          name="lework_${VERSION}_${GOOS}_${GOARCH}"
+          name="lework-${GOOS}_${GOARCH}-${VERSION}"
           mkdir -p "${RUNNER_TEMP}/package"
 
           if [ "$GOOS" = "windows" ]; then
@@ -322,19 +322,31 @@ jobs:
 
           du -h "$apk"
 
-      - name: Collect APK
+      - name: Collect Android packages
         shell: bash
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -euo pipefail
           apk="apps/mobile/android/app/build/outputs/apk/release/app-release.apk"
-          mkdir -p "${RUNNER_TEMP}/package"
-          cp "$apk" "${RUNNER_TEMP}/package/lework-android-${{ needs.prepare.outputs.version }}.apk"
+          package_dir="${RUNNER_TEMP}/package"
+          apk_name="lework-android-${VERSION}.apk"
+          mkdir -p "$package_dir"
+          cp "$apk" "${package_dir}/${apk_name}"
+
+          # COS 不允许匿名下载 apk，额外压一份同名 zip 给客户端下载；GitHub Release
+          # 仍保留原始 apk，方便手动安装。
+          (
+            cd "$package_dir"
+            zip -q "lework-android-${VERSION}.zip" "$apk_name"
+            unzip -l "lework-android-${VERSION}.zip"
+          )
 
       - name: Upload Android release artifact
         uses: actions/upload-artifact@v4
         with:
           name: release-android
-          path: ${{ runner.temp }}/package/*.apk
+          path: ${{ runner.temp }}/package/*
           if-no-files-found: error
           retention-days: 7
 
@@ -604,8 +616,11 @@ jobs:
           set -euo pipefail
 
           mkdir -p cos-upload/server cos-upload/android
-          cp upload/lework_*.tar.gz upload/lework_*.zip cos-upload/server/ 2>/dev/null || true
-          cp upload/lework-android-*.apk cos-upload/android/ 2>/dev/null || true
+          # 后端包名 lework-<os>_<arch>-<version>.<ext>；Windows 用 zip，其余 tar.gz。
+          cp upload/lework-*.tar.gz cos-upload/server/
+          cp upload/lework-windows_*.zip cos-upload/server/
+          # COS 不允许下载 apk，只上传 zip；原始 apk 仍留在 GitHub Release。
+          cp upload/lework-android-*.zip cos-upload/android/
 
           # 桌面端各平台/架构的 latest*.yml 同名，必须分目录存放。
           for dir in desktop-assets/desktop-update-files-*; do

@@ -43,8 +43,12 @@ export function latestTxtUrl(
 	return `${base}/LATEST.txt?t=${now}`;
 }
 
-/** apkUrl 按发布约定拼接版本目录下的 Android 产物地址。 */
-export function apkUrl(version: string, baseUrl: string = MOBILE_UPDATE_BASE_URL): string {
+/** packageUrl 按发布约定拼接版本目录下的 Android 更新包地址。
+ *
+ * COS 禁止匿名下载 `.apk`，发布产物统一压成同名 zip，App 下载后在本地解压出
+ * APK 再交给系统安装器。
+ */
+export function packageUrl(version: string, baseUrl: string = MOBILE_UPDATE_BASE_URL): string {
 	const base = trimTrailingSlash(baseUrl);
-	return `${base}/${version}/android/lework-android-${version}.apk`;
+	return `${base}/${version}/android/lework-android-${version}.zip`;
 }
