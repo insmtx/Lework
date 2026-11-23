@@ -107,7 +107,7 @@ App 没有底部 tab bar，也没有常驻导航栏。首页只做一件事：**
   `expo-build-properties` 文档），并把它当作临时手段。
 
   当前 `frontend/apps/mobile/app.json` 已设置 `android.usesCleartextTraffic: true`，
-  因为本项目的控制面入口（如 `http://dev.ckeyer.com`）还没有 TLS；**上线前应
+  因为本项目的控制面入口（如 `http://le.ckeyer.com`）还没有 TLS；**上线前应
   改成 HTTPS 并把这一项删掉**。诊断连接问题时先确认这一项还在，否则真机上会
   表现为 `Network request failed`，看不出是证书还是明文限制。
 - 推送需要控制面能访问 Expo Push API；设备注册复用 P0 的 `/api/devices`。
@@ -137,11 +137,11 @@ pnpm --filter @lework/mobile start
 
 ```bash
 # 安装版 APK：码里是 lework://connect?url=…&token=…
-lework serve --public-url http://dev.ckeyer.com
+lework serve --public-url http://le.ckeyer.com
 
 # Expo Go 调试：码里是 exp://<metro>/--/connect?url=…&token=…
-lework serve --public-url http://dev.ckeyer.com \
-  --expo-url http://dev.ckeyer.com:8082
+lework serve --public-url http://le.ckeyer.com \
+  --expo-url http://le.ckeyer.com:8082
 ```
 
 - `--public-url` 是**手机**访问控制面的地址。不给时退回本机局域网 IP + 监听
@@ -153,8 +153,8 @@ lework serve --public-url http://dev.ckeyer.com \
 
   ```yaml
   controlplane:
-    public_url: "http://dev.ckeyer.com"
-    expo_url: "http://dev.ckeyer.com:8082"
+    public_url: "http://le.ckeyer.com"
+    expo_url: "http://le.ckeyer.com:8082"
   ```
 - 二维码只在 stdout 是终端时输出：链接含 enrollment token，重定向到文件或
   journal 时不打印，等同于不把令牌写进日志。需要关掉用 `--no-qr`。

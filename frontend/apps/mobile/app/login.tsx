@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 
 import { createClient } from "../src/api/client";
@@ -13,7 +13,7 @@ import {
 	signIn,
 	signUp,
 } from "../src/settings/session";
-import { normalizeBaseUrl } from "../src/settings/settings";
+import { DEFAULT_BASE_URL, normalizeBaseUrl } from "../src/settings/settings";
 import { useSettings } from "../src/settings/use-settings";
 import { useTheme, useThemedStyles } from "../src/theme/use-theme";
 import { useAppShell } from "../src/ui/app-shell-context";
@@ -37,7 +37,9 @@ export default function LoginScreen() {
 	const store = useMemo(() => createSecureSettingsStore(), []);
 
 	const initialUrl = typeof params.url === "string" && params.url !== "" ? params.url : undefined;
-	const [baseUrl, setBaseUrl] = useState(initialUrl ?? settings?.baseUrl ?? "");
+	const [baseUrl, setBaseUrl] = useState(initialUrl ?? (settings?.baseUrl || DEFAULT_BASE_URL));
+	// 设置是异步读出来的：用户已经动过输入框时，别用默认值或旧设置把它覆盖掉。
+	const baseUrlEdited = useRef(false);
 	const [email, setEmail] = useState(settings?.email ?? "");
 	const [password, setPassword] = useState("");
 	const [mode, setMode] = useState<Mode>("login");
@@ -50,7 +52,9 @@ export default function LoginScreen() {
 
 	useEffect(() => {
 		if (!settings) return;
-		if (!initialUrl) setBaseUrl((current) => (current === "" ? settings.baseUrl : current));
+		// 深链地址优先；用户已经动过输入框时不再覆盖；否则落到保存的地址，
+		// 没有保存过就保留默认值。
+		if (!initialUrl && !baseUrlEdited.current) setBaseUrl(settings.baseUrl || DEFAULT_BASE_URL);
 		setEmail((current) => (current === "" ? settings.email : current));
 	}, [settings, initialUrl]);
 
@@ -122,7 +126,10 @@ export default function LoginScreen() {
 				<TextInput
 					style={styles.input}
 					value={baseUrl}
-					onChangeText={setBaseUrl}
+					onChangeText={(text) => {
+						baseUrlEdited.current = true;
+						setBaseUrl(text);
+					}}
 					autoCapitalize="none"
 					autoCorrect={false}
 					keyboardType="url"
