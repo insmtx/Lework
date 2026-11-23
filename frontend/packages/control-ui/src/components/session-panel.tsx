@@ -15,6 +15,7 @@ import {
 	Workflow,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { nodeColorStyle } from "../node-colors";
 import type { Message, NodeView, PermissionRequest, Session } from "../types";
 import { Conversation } from "./conversation";
 import { DiffView } from "./diff-view";
@@ -102,9 +103,13 @@ export function SessionPanel({
 
 	const directory = session.directory || "";
 	const directoryMissing = directory === "";
+	const nodeStyle = nodeColorStyle(node?.color);
 
 	return (
 		<div className="flex h-full min-h-0 flex-col">
+			{nodeStyle ? (
+				<div aria-hidden className={cn("h-0.5 w-full shrink-0", nodeStyle.line)} />
+			) : null}
 			<header className="shrink-0 border-b px-3 py-2.5 md:px-4 md:py-3">
 				<div className="flex items-start gap-2 md:gap-3">
 					{onBack ? (
@@ -125,9 +130,12 @@ export function SessionPanel({
 							</h1>
 							<Badge
 								variant={node?.connected ? "secondary" : "outline"}
-								className="max-w-24 shrink-0 truncate md:max-w-40"
+								className="max-w-24 shrink-0 gap-1.5 truncate md:max-w-40"
 							>
-								{node?.name ?? "unknown node"}
+								{nodeStyle ? (
+									<span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", nodeStyle.dot)} />
+								) : null}
+								<span className="truncate">{node?.name ?? "unknown node"}</span>
 							</Badge>
 						</div>
 						<div className="mt-1 flex min-w-0 items-center gap-2 text-[11px] text-muted-foreground">
