@@ -50,6 +50,12 @@ func TestDeleteNodeForOwnerCascades(t *testing.T) {
 	if err := st.SetNodeAliasFor(ctx, owner.ID, node.ID, "客厅的电脑"); err != nil {
 		t.Fatalf("SetNodeAliasFor: %v", err)
 	}
+	if err := st.SetNodeColorFor(ctx, owner.ID, node.ID, "blue"); err != nil {
+		t.Fatalf("SetNodeColorFor: %v", err)
+	}
+	if err := st.SetNodeColorFor(ctx, other.ID, node.ID, "teal"); err != nil {
+		t.Fatalf("SetNodeColorFor other: %v", err)
+	}
 	// 另一账号的目录偏好不能被误删。
 	if err := st.SetPreferenceFor(ctx, other.ID, "inbox.dir."+node.ID, "/other"); err != nil {
 		t.Fatalf("SetPreferenceFor other: %v", err)
@@ -100,6 +106,12 @@ func TestDeleteNodeForOwnerCascades(t *testing.T) {
 	}
 	if _, ok, _ := st.GetNodeAliasFor(ctx, owner.ID, node.ID); ok {
 		t.Fatal("owner node alias must be deleted with the node")
+	}
+	if _, ok, _ := st.GetNodeColorFor(ctx, owner.ID, node.ID); ok {
+		t.Fatal("owner node color must be deleted with the node")
+	}
+	if color, ok, _ := st.GetNodeColorFor(ctx, other.ID, node.ID); !ok || color != "teal" {
+		t.Fatalf("other node color = %q, ok = %v; want teal preserved", color, ok)
 	}
 	if _, ok, _ := st.GetPreferenceFor(ctx, other.ID, "inbox.dir."+node.ID); !ok {
 		t.Fatal("other user's preference must be untouched")
