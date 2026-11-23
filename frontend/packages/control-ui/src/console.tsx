@@ -456,6 +456,27 @@ export function ControlConsole({
 		);
 	};
 
+	// 颜色是每账号自己的显示偏好：先本地生效，失败再回滚，避免等待往返。
+	const setNodeColor = async (nodeID: string, color: string) => {
+		const previous = nodes.find((node) => node.id === nodeID)?.color ?? "";
+		setNodes((current) =>
+			current.map((node) => (node.id === nodeID ? { ...node, color } : node)),
+		);
+		try {
+			const updated = await client.setNodeColor(nodeID, color);
+			setNodes((current) =>
+				current.map((node) =>
+					node.id === nodeID ? { ...node, color: updated.color ?? "" } : node,
+				),
+			);
+		} catch (error) {
+			setNodes((current) =>
+				current.map((node) => (node.id === nodeID ? { ...node, color: previous } : node)),
+			);
+			throw error;
+		}
+	};
+
 	const remove = async (sessionID: string) => {
 		if (!selectedNodeID) throw new Error("Select a connected node first");
 		await client.deleteSession(selectedNodeID, sessionID);
@@ -564,6 +585,7 @@ export function ControlConsole({
 			sessionDirectory={sessionDirectory}
 			onFilterSessions={setSessionDirectory}
 			onRenameNode={renameNode}
+			onSetNodeColor={setNodeColor}
 			onRenameSession={rename}
 			onDeleteSession={remove}
 			nodeHealth={nodeHealth}
