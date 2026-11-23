@@ -1,5 +1,7 @@
+import { useCallback, useEffect, useState } from "react";
 import {
-	KeyboardAvoidingView,
+	Keyboard,
+	type KeyboardEvent,
 	Platform,
 	Pressable,
 	StyleSheet,
@@ -9,6 +11,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { keyboardOverlap } from "../composer/keyboard";
 import type { Theme } from "../theme/theme";
 import { useTheme, useThemedStyles } from "../theme/use-theme";
 import { BrandSpinner } from "./loading";
@@ -49,57 +52,91 @@ export function GlobalComposer(props: GlobalComposerProps) {
 	const styles = useThemedStyles(createStyles);
 	const disabled = props.target === null;
 	const canSend = !disabled && !props.sending && props.value.trim() !== "";
+	const baseBottom = Math.max(insets.bottom, 8);
+
+	// 输入法让出的额外高度。不用 KeyboardAvoidingView：它只在键盘事件到来时更新，
+	// 而页面常常是在键盘已经打开时挂载的（首页发送后直接 router.push 到会话页），
+	// 这时不会再有 didShow，输入栏就会一直压在输入法下面。直接读当前键盘 metrics，
+	// 并在输入框聚焦时补同步，与页面挂载时机无关。
+	const [keyboardInset, setKeyboardInset] = useState(0);
+	const applyKeyboardHeight = useCallback(
+		(keyboardHeight: number | undefined) => {
+			setKeyboardInset(
+				keyboardOverlap({
+					keyboardHeight,
+					baseBottom,
+					platform: Platform.OS,
+				}),
+			);
+		},
+		[baseBottom],
+	);
+	const syncKeyboardInset = useCallback(() => {
+		applyKeyboardHeight(Keyboard.metrics()?.height);
+	}, [applyKeyboardHeight]);
+
+	useEffect(() => {
+		const handleShow = (event: KeyboardEvent) => {
+			// 用事件里的高度：iOS 的 willShow 早于全局 metrics 刷新，读缓存会晚一帧。
+			// iOS 按键盘动画时长同步推高；Android 事件时长为 0，直接落位。
+			Keyboard.scheduleLayoutAnimation(event);
+			applyKeyboardHeight(event.endCoordinates.height);
+		};
+		const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+		const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+		const subscriptions = [
+			Keyboard.addListener(showEvent, handleShow),
+			Keyboard.addListener(hideEvent, () => setKeyboardInset(0)),
+		];
+		// 挂载时键盘可能已经打开，先按当前状态对齐一次。
+		applyKeyboardHeight(Keyboard.metrics()?.height);
+		return () => {
+			for (const subscription of subscriptions) subscription.remove();
+		};
+	}, [applyKeyboardHeight]);
 
 	return (
-		<KeyboardAvoidingView
-			behavior={Platform.OS === "ios" ? "padding" : undefined}
-			keyboardVerticalOffset={80}
-		>
-			<View style={[styles.container, { paddingBottom: Math.max(insets.bottom, 8) }]}>
-				{props.disabledReason ? <Text style={styles.reason}>{props.disabledReason}</Text> : null}
-				{props.target && props.showChip !== false ? (
-					<Pressable
-						disabled={!props.onPickTarget}
-						onPress={props.onPickTarget}
-						style={styles.chip}
-					>
-						<Text style={styles.chipText} numberOfLines={1}>
-							{props.target.projectName}
-							{props.target.showNode === false
-								? ""
-								: props.target.nodeID
-									? ` · ${props.target.nodeName ?? props.target.nodeID}`
-									: " · 节点离线"}
-							{props.onPickTarget ? "  ▾" : ""}
-						</Text>
-					</Pressable>
-				) : null}
-				<View style={styles.row}>
-					<TextInput
-						style={styles.input}
-						value={props.value}
-						onChangeText={props.onChangeText}
-						editable={!disabled}
-						multiline
-						placeholder={disabled ? "暂不可发送" : "说点什么…"}
-						// 16px 起步：iOS 上更小的字号会在聚焦时自动放大页面。
-						placeholderTextColor={theme.colors.placeholder}
-						selectionColor={theme.colors.accent}
-					/>
-					<Pressable
-						disabled={!canSend}
-						onPress={() => void props.onSend()}
-						style={[styles.send, !canSend && styles.sendDisabled]}
-					>
-						{props.sending ? (
-							<BrandSpinner color={theme.colors.actionText} />
-						) : (
-							<Text style={styles.sendText}>发送</Text>
-						)}
-					</Pressable>
-				</View>
+		<View style={[styles.container, { paddingBottom: baseBottom + keyboardInset }]}>
+			{props.disabledReason ? <Text style={styles.reason}>{props.disabledReason}</Text> : null}
+			{props.target && props.showChip !== false ? (
+				<Pressable disabled={!props.onPickTarget} onPress={props.onPickTarget} style={styles.chip}>
+					<Text style={styles.chipText} numberOfLines={1}>
+						{props.target.projectName}
+						{props.target.showNode === false
+							? ""
+							: props.target.nodeID
+								? ` · ${props.target.nodeName ?? props.target.nodeID}`
+								: " · 节点离线"}
+						{props.onPickTarget ? "  ▾" : ""}
+					</Text>
+				</Pressable>
+			) : null}
+			<View style={styles.row}>
+				<TextInput
+					style={styles.input}
+					value={props.value}
+					onChangeText={props.onChangeText}
+					onFocus={syncKeyboardInset}
+					editable={!disabled}
+					multiline
+					placeholder={disabled ? "暂不可发送" : "说点什么…"}
+					// 16px 起步：iOS 上更小的字号会在聚焦时自动放大页面。
+					placeholderTextColor={theme.colors.placeholder}
+					selectionColor={theme.colors.accent}
+				/>
+				<Pressable
+					disabled={!canSend}
+					onPress={() => void props.onSend()}
+					style={[styles.send, !canSend && styles.sendDisabled]}
+				>
+					{props.sending ? (
+						<BrandSpinner color={theme.colors.actionText} />
+					) : (
+						<Text style={styles.sendText}>发送</Text>
+					)}
+				</Pressable>
 			</View>
-		</KeyboardAvoidingView>
+		</View>
 	);
 }
 
