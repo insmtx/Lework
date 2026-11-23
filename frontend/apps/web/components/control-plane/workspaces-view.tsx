@@ -1,6 +1,11 @@
 "use client";
 
-import { type NodeView, type ProjectSummary, useControlApi } from "@lework/control-ui";
+import {
+	type NodeView,
+	nodeColorStyle,
+	type ProjectSummary,
+	useControlApi,
+} from "@lework/control-ui";
 import { Badge } from "@lework/ui/components/ui/badge";
 import { Button } from "@lework/ui/components/ui/button";
 import { cn } from "@lework/ui/lib/utils";
@@ -158,21 +163,36 @@ export function WorkspacesView() {
 										{project.nodes.length === 0 ? (
 											<Badge variant="outline">暂无节点</Badge>
 										) : (
-											project.nodes.map((node) => (
-												<Badge
-													key={node.node_id}
-													variant={node.online ? "secondary" : "outline"}
-													title={node.online ? "在线" : `最后在线 ${node.last_seen}`}
-												>
-													<span
-														className={cn(
-															"mr-1 inline-block size-1.5 rounded-full",
-															node.online ? "bg-emerald-500" : "bg-slate-400",
-														)}
-													/>
-													{nodeName(nodes, node.node_id)}
-												</Badge>
-											))
+											project.nodes.map((node) => {
+												const nodeStyle = nodeColorStyle(
+													nodes.find((item) => item.id === node.node_id)?.color,
+												);
+												return (
+													<Badge
+														key={node.node_id}
+														variant={node.online ? "secondary" : "outline"}
+														title={node.online ? "在线" : `最后在线 ${node.last_seen}`}
+														className="relative"
+													>
+														{nodeStyle ? (
+															<span
+																aria-hidden
+																className={cn(
+																	"pointer-events-none absolute inset-0",
+																	nodeStyle.wash,
+																)}
+															/>
+														) : null}
+														<span
+															className={cn(
+																"relative mr-1 inline-block size-1.5 rounded-full",
+																node.online ? "bg-emerald-500" : "bg-slate-400",
+															)}
+														/>
+														<span className="relative">{nodeName(nodes, node.node_id)}</span>
+													</Badge>
+												);
+											})
 										)}
 									</div>
 

@@ -26,5 +26,7 @@ export {
 	useControlApi,
 } from "./context";
 export { type DiffRow, parsePatch } from "./diff";
+export type { NodeColorStyle, NodeColorToken } from "./node-colors";
+export { NODE_COLOR_STYLES, NODE_COLOR_TOKENS, nodeColorStyle } from "./node-colors";
 export * from "./types";
 export { useControlEvents } from "./use-control-events";
