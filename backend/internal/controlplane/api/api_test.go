@@ -475,6 +475,7 @@ type apiError struct {
 type nodeResponse struct {
 	ID           string    `json:"id"`
 	Name         string    `json:"name"`
+	Color        string    `json:"color"`
 	OS           string    `json:"os"`
 	Arch         string    `json:"arch"`
 	AgentVersion string    `json:"agent_version"`
