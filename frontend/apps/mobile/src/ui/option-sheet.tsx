@@ -11,6 +11,8 @@ export interface OptionSheetItem {
 	detail?: string;
 	/** 右侧状态文案，如「在线」「离线」。 */
 	status?: string;
+	/** 左侧色块；用于节点颜色等需要可视化取值的选项。 */
+	swatch?: string;
 	tone?: "normal" | "muted" | "danger";
 	selected?: boolean;
 	disabled?: boolean;
@@ -56,6 +58,9 @@ export function OptionSheet(props: OptionSheetProps) {
 									onPress={() => props.onSelect(item.key)}
 									style={[styles.item, item.disabled && styles.itemDisabled]}
 								>
+									{item.swatch ? (
+										<View style={[styles.swatch, { backgroundColor: item.swatch }]} />
+									) : null}
 									<View style={styles.itemMain}>
 										<Text
 											numberOfLines={1}
@@ -112,6 +117,7 @@ function createStyles(theme: Theme) {
 			borderBottomColor: colors.borderSubtle,
 		},
 		itemDisabled: { opacity: 0.45 },
+		swatch: { width: 14, height: 14, borderRadius: 7, borderWidth: 1, borderColor: colors.border },
 		itemMain: { flex: 1, gap: 2 },
 		label: { fontSize: 15, color: colors.text },
 		selectedLabel: { fontWeight: "600" },

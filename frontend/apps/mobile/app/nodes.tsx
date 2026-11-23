@@ -1,15 +1,20 @@
 import type { NodeView } from "@lework/api";
 import { router } from "expo-router";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Alert, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 
 import { createClient } from "../src/api/client";
+import { NODE_COLOR_OPTIONS, nodeColorSwatch } from "../src/nodes/colors";
 import { sortNodes } from "../src/nodes/order";
 import { describeRemoveNode, removeErrorMessage, visibleNodes } from "../src/nodes/remove";
 import type { Theme } from "../src/theme/theme";
 import { useThemedStyles } from "../src/theme/use-theme";
 import { useAppShell, useScreenTitle } from "../src/ui/app-shell-context";
 import { LoadingScreen } from "../src/ui/loading";
+import { OptionSheet, type OptionSheetItem } from "../src/ui/option-sheet";
+
+/** 弹层里「不设色」的 key，避免与真实 token 混淆。 */
+const NODE_COLOR_NONE = "__none__";
 
 /**
  * NodeCard 只展示这台电脑本身的状态。
@@ -20,14 +25,34 @@ import { LoadingScreen } from "../src/ui/loading";
  * 移除入口放在卡片右上角的「⋯」：破坏性操作不该一眼可点，但仍要在它对应的
  * 那一行上，用户不必回设置里找。
  */
-function NodeCard({ node, onRemove }: { node: NodeView; onRemove: (node: NodeView) => void }) {
+function NodeCard({
+	node,
+	onRemove,
+	onPickColor,
+}: {
+	node: NodeView;
+	onRemove: (node: NodeView) => void;
+	onPickColor: (node: NodeView) => void;
+}) {
 	const styles = useThemedStyles(createStyles);
 	const lastSeen = node.last_seen ? new Date(node.last_seen).toLocaleString() : "从未";
 	const roots = node.workspace_roots ?? [];
+	const swatch = nodeColorSwatch(node.color);
 
 	return (
 		<View style={[styles.card, !node.connected && styles.cardOffline]}>
 			<View style={styles.header}>
+				<Pressable
+					accessibilityRole="button"
+					accessibilityLabel={`设置 ${node.name} 的颜色`}
+					hitSlop={8}
+					onPress={() => onPickColor(node)}
+					style={styles.colorButton}
+				>
+					<View
+						style={[styles.colorDot, swatch ? { backgroundColor: swatch } : styles.colorDotEmpty]}
+					/>
+				</Pressable>
 				<Text style={styles.name} numberOfLines={1}>
 					{node.name}
 				</Text>
@@ -71,6 +96,40 @@ export default function NodesScreen() {
 	const nodes = useMemo(() => visibleNodes(sortNodes(projects.nodes)), [projects.nodes]);
 	const { loading, error, refresh } = projects;
 	const onlineCount = nodes.filter((node) => node.connected).length;
+	const [colorTarget, setColorTarget] = useState<NodeView | null>(null);
+
+	const colorItems = useMemo<OptionSheetItem[]>(() => {
+		const current = colorTarget?.color ?? "";
+		return [
+			...NODE_COLOR_OPTIONS.map((option) => ({
+				key: option.token,
+				label: option.label,
+				swatch: option.swatch,
+				selected: current === option.token,
+			})),
+			{
+				key: NODE_COLOR_NONE,
+				label: "不设色",
+				selected: !nodeColorSwatch(current),
+				swatch: "transparent",
+			},
+		];
+	}, [colorTarget]);
+
+	const selectNodeColor = (key: string) => {
+		const target = colorTarget;
+		setColorTarget(null);
+		if (!target || !settings) return;
+		const color = key === NODE_COLOR_NONE ? "" : key;
+		void createClient(settings)
+			.setNodeColor(target.id, color)
+			.then(() => {
+				projects.refresh();
+			})
+			.catch((caught: unknown) => {
+				Alert.alert("设置颜色失败", caught instanceof Error ? caught.message : "请稍后重试");
+			});
+	};
 
 	const confirmRemove = (node: NodeView) => {
 		Alert.alert(`移除 ${node.name}？`, describeRemoveNode(node.name), [
@@ -134,31 +193,43 @@ export default function NodesScreen() {
 	);
 
 	return (
-		<FlatList
-			contentContainerStyle={styles.list}
-			data={nodes}
-			keyExtractor={(node) => node.id}
-			renderItem={({ item }) => <NodeCard node={item} onRemove={confirmRemove} />}
-			refreshControl={<RefreshControl refreshing={loading} onRefresh={refresh} />}
-			ListHeaderComponent={header}
-			ListEmptyComponent={
-				<View style={styles.empty}>
-					<Text style={styles.title}>还没有电脑</Text>
-					<Text style={styles.hint}>
-						在电脑上运行 lework agent，终端会显示二维码与 5 位配对码。扫码或输码把它加入这个账号。
-					</Text>
-					<Pressable style={styles.button} onPress={() => router.push("/nodes/add")}>
-						<Text style={styles.buttonText}>扫码添加</Text>
-					</Pressable>
-					<Pressable
-						style={styles.secondaryButton}
-						onPress={() => router.push({ pathname: "/nodes/add", params: { mode: "input" } })}
-					>
-						<Text style={styles.secondaryText}>输入配对码</Text>
-					</Pressable>
-				</View>
-			}
-		/>
+		<>
+			<FlatList
+				contentContainerStyle={styles.list}
+				data={nodes}
+				keyExtractor={(node) => node.id}
+				renderItem={({ item }) => (
+					<NodeCard node={item} onRemove={confirmRemove} onPickColor={setColorTarget} />
+				)}
+				refreshControl={<RefreshControl refreshing={loading} onRefresh={refresh} />}
+				ListHeaderComponent={header}
+				ListEmptyComponent={
+					<View style={styles.empty}>
+						<Text style={styles.title}>还没有电脑</Text>
+						<Text style={styles.hint}>
+							在电脑上运行 lework agent，终端会显示二维码与 5 位配对码。扫码或输码把它加入这个账号。
+						</Text>
+						<Pressable style={styles.button} onPress={() => router.push("/nodes/add")}>
+							<Text style={styles.buttonText}>扫码添加</Text>
+						</Pressable>
+						<Pressable
+							style={styles.secondaryButton}
+							onPress={() => router.push({ pathname: "/nodes/add", params: { mode: "input" } })}
+						>
+							<Text style={styles.secondaryText}>输入配对码</Text>
+						</Pressable>
+					</View>
+				}
+			/>
+			<OptionSheet
+				visible={colorTarget !== null}
+				title="节点颜色"
+				subtitle={colorTarget ? `设置「${colorTarget.name}」的展示颜色` : undefined}
+				items={colorItems}
+				onSelect={selectNodeColor}
+				onClose={() => setColorTarget(null)}
+			/>
+		</>
 	);
 }
 
@@ -197,6 +268,15 @@ function createStyles(theme: Theme) {
 		},
 		cardOffline: { opacity: 0.7 },
 		header: { flexDirection: "row", alignItems: "center", gap: 8 },
+		colorButton: { padding: 2 },
+		colorDot: {
+			width: 14,
+			height: 14,
+			borderRadius: 7,
+			borderWidth: 1,
+			borderColor: colors.border,
+		},
+		colorDotEmpty: { backgroundColor: "transparent", borderColor: colors.borderStrong },
 		name: { fontSize: 16, fontWeight: "600", flexShrink: 1, color: colors.text },
 		status: { fontSize: 12, fontWeight: "600", marginLeft: "auto" },
 		online: { color: colors.success },
