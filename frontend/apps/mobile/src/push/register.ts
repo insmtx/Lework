@@ -5,14 +5,22 @@ import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 
 import type { Settings } from "../settings/settings";
+import {
+	ANDROID_CHANNEL_ID,
+	ANDROID_CHANNEL_ID_COMPLETIONS,
+	androidChannels,
+	type ChannelImportance,
+	LEGACY_CHANNEL_IDS,
+} from "./channels";
 
-// ANDROID_CHANNEL_ID 必须与服务端推送里的 ChannelID 一致，否则 Android 8+
-// 会把通知落到默认渠道，静音或没有横幅提示。
-export const ANDROID_CHANNEL_ID = "permissions";
+export { ANDROID_CHANNEL_ID, ANDROID_CHANNEL_ID_COMPLETIONS };
 
-// 执行结果走独立渠道：审批需要打断用户（HIGH + 震动），完成/失败只需要
-// 一条横幅。两件事混在一个渠道里，用户没法只关掉其中一个。
-export const ANDROID_CHANNEL_ID_COMPLETIONS = "completions";
+// 渠道定义里的语义重要性映射到原生枚举；其余字段（名称、声音）直接来自
+// channels.ts，保证测试断言的配置就是真正注册到系统里的那份。
+const IMPORTANCE: Record<ChannelImportance, Notifications.AndroidImportance> = {
+	high: Notifications.AndroidImportance.HIGH,
+	default: Notifications.AndroidImportance.DEFAULT,
+};
 
 // 前台是否响铃由「提醒」里的声音开关决定。模块级变量而不是 context：
 // setNotificationHandler 在模块加载时注册，拿不到 React 状态。
@@ -28,37 +36,28 @@ export function isForegroundSoundEnabled(): boolean {
 	return foregroundSoundEnabled;
 }
 
-async function ensureAndroidChannel(soundEnabled: boolean): Promise<void> {
-	if (Platform.OS !== "android") return;
-	await Notifications.setNotificationChannelAsync(ANDROID_CHANNEL_ID, {
-		name: "审批提醒",
-		description: soundEnabled ? "节点请求审批时响铃提醒" : "节点请求审批时静默提醒",
-		importance: Notifications.AndroidImportance.HIGH,
-		lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-		sound: soundEnabled ? "default" : null,
-		enableVibrate: soundEnabled,
-	});
-	// DEFAULT 重要性有横幅但不打断：不响铃、不震动。
-	await Notifications.setNotificationChannelAsync(ANDROID_CHANNEL_ID_COMPLETIONS, {
-		name: "执行结果",
-		description: "会话执行完成或失败时提醒",
-		importance: Notifications.AndroidImportance.DEFAULT,
-		lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-		sound: null,
-		enableVibrate: false,
-	});
-}
-
 /**
- * applySoundPreference 重建 Android 审批渠道以应用新的声音偏好。
+ * ensureAndroidChannels 注册两类提醒的渠道，并清掉旧版 ID。
  *
- * Android 8+ 创建渠道后再改 sound 不生效，只能删除重建；渠道 ID 保持不变，
- * 服务端推送不需要跟着变。执行结果渠道本来就是静音，无需重建。
+ * 声音在渠道创建时定下后归系统管理，应用无法再改，所以这里只保证渠道
+ * 存在；用户想静音时在系统设置里单独关掉对应渠道即可。旧 ID 必须删除，
+ * 否则设置里会残留一条永不触发的「审批提醒 / 执行结果」。
  */
-export async function applySoundPreference(soundEnabled: boolean): Promise<void> {
+export async function ensureAndroidChannels(): Promise<void> {
 	if (Platform.OS !== "android") return;
-	await Notifications.deleteNotificationChannelAsync(ANDROID_CHANNEL_ID);
-	await ensureAndroidChannel(soundEnabled);
+	for (const id of LEGACY_CHANNEL_IDS) {
+		await Notifications.deleteNotificationChannelAsync(id);
+	}
+	for (const channel of androidChannels()) {
+		await Notifications.setNotificationChannelAsync(channel.id, {
+			name: channel.name,
+			description: channel.description,
+			importance: IMPORTANCE[channel.importance],
+			lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+			sound: channel.sound,
+			enableVibrate: channel.enableVibrate,
+		});
+	}
 }
 
 // registerForPush 申请通知权限并登记 Expo Push Token。
@@ -69,12 +68,11 @@ export async function applySoundPreference(soundEnabled: boolean): Promise<void>
 export async function registerForPush(
 	settings: Settings,
 	client: ApiClient,
-	soundEnabled = true,
 ): Promise<string | null> {
 	void settings;
 	if (!Device.isDevice) return null;
 
-	await ensureAndroidChannel(soundEnabled);
+	await ensureAndroidChannels();
 
 	let permission = await Notifications.getPermissionsAsync();
 	if (permission.status !== "granted") {

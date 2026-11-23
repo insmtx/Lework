@@ -28,7 +28,11 @@
 			["expo-camera", { "cameraPermission": "允许 lework 扫描配对二维码" }],
 			[
 				"expo-notifications",
-				{ "icon": "./assets/notification-icon.png", "color": "#4f46e5" }
+				{
+					"icon": "./assets/notification-icon.png",
+					"color": "#4f46e5",
+					"sounds": ["./assets/sounds/approval.wav", "./assets/sounds/done.wav"]
+				}
 			]
 		],
 		"experiments": {

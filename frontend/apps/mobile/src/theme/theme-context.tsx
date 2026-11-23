@@ -10,7 +10,7 @@ import {
 } from "react";
 import { useColorScheme } from "react-native";
 
-import { applySoundPreference, setForegroundSoundEnabled } from "../push/register";
+import { ensureAndroidChannels, setForegroundSoundEnabled } from "../push/register";
 import { DEFAULT_PREFERENCES, type Preferences } from "../settings/preferences";
 import { createSecurePreferencesStore } from "../settings/secure-store";
 import { type ColorScheme, resolveScheme, type Theme, type ThemeMode, themeFor } from "./theme";
@@ -74,6 +74,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 		setForegroundSoundEnabled(preferences.soundEnabled);
 	}, [preferences.soundEnabled]);
 
+	// 升级或首次启动时补齐通知渠道；渠道声音创建后归系统管理，不能改。
+	useEffect(() => {
+		void ensureAndroidChannels().catch(() => {
+			// 渠道创建失败不影响界面；下次启动或重新开启推送会重试。
+		});
+	}, []);
+
 	const setPreference = useCallback(
 		<K extends keyof Preferences>(key: K, value: Preferences[K]) => {
 			const next = { ...preferencesRef.current, [key]: value };
@@ -83,11 +90,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 			void store.save(next).catch(() => {
 				// 本地偏好落盘失败只影响下次启动，不值得为它打断操作。
 			});
-			if (key === "soundEnabled") {
-				void applySoundPreference(Boolean(value)).catch(() => {
-					// 渠道重建失败时仍保留偏好，下次启动或再次切换会重试。
-				});
-			}
 		},
 		[store],
 	);

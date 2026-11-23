@@ -109,7 +109,7 @@ func TestNotifierSendsOneMessagePerDevice(t *testing.T) {
 		t.Fatalf("batches = %+v, want one batch of two", sender.batches)
 	}
 	msg := sender.firstBatch()[0]
-	if msg.To != "tok-a" || msg.Tag != "ses_1" || msg.ChannelID != "permissions" || msg.Priority != "high" {
+	if msg.To != "tok-a" || msg.Tag != "ses_1" || msg.ChannelID != "permissions-v2" || msg.Priority != "high" {
 		t.Fatalf("message = %+v", msg)
 	}
 	if msg.Data["node"] != "node_1" || msg.Data["session"] != "ses_1" || msg.Data["permission_id"] != "perm_1" {
@@ -278,7 +278,7 @@ func TestNotifierPushesCompletion(t *testing.T) {
 	if msg.Data["kind"] != "done" {
 		t.Fatalf("data = %+v, want kind done", msg.Data)
 	}
-	if msg.ChannelID != "completions" {
+	if msg.ChannelID != "completions-v2" {
 		t.Fatalf("channel = %q, want completions", msg.ChannelID)
 	}
 	if msg.Tag != "ses_1" {
@@ -310,7 +310,7 @@ func TestNotifierPushesFailure(t *testing.T) {
 	if msg.Data["kind"] != "failed" {
 		t.Fatalf("data = %+v, want kind failed", msg.Data)
 	}
-	if msg.ChannelID != "completions" {
+	if msg.ChannelID != "completions-v2" {
 		t.Fatalf("channel = %q, want completions", msg.ChannelID)
 	}
 	if msg.Tag != "ses_1" {

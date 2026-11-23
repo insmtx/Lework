@@ -56,7 +56,7 @@ export default function NotificationsScreen() {
 			const client = createClient(settings);
 			let nextDeviceID = settings.deviceID;
 			if (enabled) {
-				const registered = await registerForPush(settings, client, preferences.soundEnabled);
+				const registered = await registerForPush(settings, client);
 				if (!registered) {
 					throw new Error("推送未登记：请授予通知权限并配置 EAS project id。");
 				}
@@ -103,14 +103,12 @@ export default function NotificationsScreen() {
 			<SettingsSection title="声音" hint="只影响这台手机，不会改变控制面的推送内容。">
 				<ToggleRow
 					label="声音提醒"
-					hint="审批通知响铃并震动；关闭后静默提醒。"
+					hint="关闭后 App 在前台时静默提醒；后台提示音由系统通知渠道控制。"
 					value={preferences.soundEnabled}
 					onValueChange={(value) => setPreference("soundEnabled", value)}
 					disabled={!notifications}
 				/>
-				<Text style={styles.hint}>
-					iOS 后台推送的提示音由服务端负载决定；这里控制的是前台收到通知时是否响铃。
-				</Text>
+				<Text style={styles.hint}>两类提醒各用一个系统通知渠道，可在系统设置里分别关闭声音。</Text>
 			</SettingsSection>
 
 			{status ? <Text style={[styles.status, failed && styles.statusFailed]}>{status}</Text> : null}

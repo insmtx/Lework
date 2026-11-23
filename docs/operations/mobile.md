@@ -112,6 +112,24 @@ App 没有底部 tab bar，也没有常驻导航栏。首页只做一件事：**
   表现为 `Network request failed`，看不出是证书还是明文限制。
 - 推送需要控制面能访问 Expo Push API；设备注册复用 P0 的 `/api/devices`。
 
+### 推送提示音
+
+审批请求与执行结束必须听得出区别，否则用户得先看屏幕才知道要不要立刻处理。
+
+- 两类事件各走一个 Android 通知渠道：`permissions-v2`（HIGH、震动、`approval.wav`）
+  与 `completions-v2`（DEFAULT、不震动、`done.wav`）。渠道 ID 在服务端
+  `backend/internal/controlplane/push/notifier.go` 与客户端 `src/push/channels.ts`
+  各写一份，必须一致。
+- 音频在 `assets/sounds/`，由 `pnpm --filter @lework/mobile run sounds` 生成。
+  文件名必须同时出现在 `app.json` 的 `expo-notifications` 插件 `sounds` 数组里，
+  否则渠道找不到资源会回落到系统默认音；`src/push/sounds.test.ts` 检查这三处对齐。
+- 改提示音**不能**删除同名渠道再重建：Android 会复活已删除的渠道并保留旧设置，
+  只有换新渠道 ID 才生效。旧 ID（`permissions` / `completions`）在启动时删除，
+  避免系统设置里残留重复条目。
+- 应用内的「声音提醒」只控制 App 在前台时是否响铃；后台提示音跟随系统里的渠道
+  设置，用户可以单独关掉任一渠道。
+- 服务端只负责选择渠道（`channelId`），不传提示音：提示音是纯客户端能力。
+
 ## 本地开发
 
 ```bash
@@ -290,6 +308,7 @@ xx%」），目标路径为缓存目录下的 `lework-update-<version>.zip`，�
 - [ ] 项目页可切换主节点；主节点离线时自动落到其它在线节点发送。
 - [ ] 节点全部离线时输入框禁用并显示原因，项目卡标灰。
 - [ ] 某会话请求审批时，锁屏收到通知；点通知直接落到该会话的审批卡片。
+- [ ] 审批推送与执行完成推送播放不同提示音；系统设置里两个渠道可分别关闭声音。
 - [ ] 在审批卡片点 Allow once，桌面端会话继续；点 Reject 可填写原因。
 - [ ] 深链指向已删除会话时显示「会话不存在」，可去待审批或回首页。
 - [ ] 发送失败（例如节点掉线）后草稿仍在输入框里。
