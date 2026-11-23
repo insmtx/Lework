@@ -17,6 +17,7 @@ import { createClient } from "../src/api/client";
 import { createSecureDraftStore } from "../src/composer/secure-draft";
 import { newIdempotencyKey, sendToProject } from "../src/composer/send";
 import { sessionRoute } from "../src/config";
+import { nodeColorSwatch } from "../src/nodes/colors";
 import {
 	nodeCanCreateProject,
 	nodeCanCreateSession,
@@ -123,6 +124,7 @@ export default function HomeScreen() {
 					label: node.name || node.id,
 					detail: projects.dirByNode[node.id],
 					status: !node.connected ? "离线" : usable ? "在线" : "不支持新建",
+					swatch: nodeColorSwatch(node.color) ?? undefined,
 					tone: usable ? "normal" : "muted",
 					selected: node.id === target.nodeID,
 					disabled: !usable,
@@ -330,6 +332,7 @@ export default function HomeScreen() {
 							label="电脑"
 							value={nodeLabel}
 							status={activeNode ? (activeNode.connected ? "online" : "offline") : "none"}
+							accentColor={nodeColorSwatch(activeNode?.color) ?? undefined}
 							disabled={!canPickTarget}
 							onPress={() => setNodeSheetOpen(true)}
 						/>

@@ -47,6 +47,10 @@ export default function ProjectScreen() {
 		() => Object.fromEntries(nodes.map((node) => [node.id, node.name])),
 		[nodes],
 	);
+	const nodeColorByID = useMemo(
+		() => Object.fromEntries(nodes.map((node) => [node.id, node.color ?? ""])),
+		[nodes],
+	);
 	const onlineNodeIDs = useMemo(
 		() => nodes.filter((node) => node.connected).map((node) => node.id),
 		[nodes],
@@ -208,6 +212,7 @@ export default function ProjectScreen() {
 						nodeID={item.nodeID}
 						session={item.session}
 						nodeName={nodeNameByID[item.nodeID]}
+						nodeColor={nodeColorByID[item.nodeID]}
 						state={sessionState(item.nodeID, item.session.id)}
 					/>
 				)}

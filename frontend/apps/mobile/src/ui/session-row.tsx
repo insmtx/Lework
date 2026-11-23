@@ -3,6 +3,7 @@ import { router } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { sessionRoute } from "../config";
+import { nodeColorSwatch } from "../nodes/colors";
 import { formatRelativeTime } from "../sidebar/model";
 import type { Theme } from "../theme/theme";
 import { useThemedStyles } from "../theme/use-theme";
@@ -14,16 +15,19 @@ import { SessionStatusDot, UnreadDot } from "./session-status-dot";
  *
  * 标题左侧的状态点来自 overview 投影，时间右侧的未读点来自本机水位；两个
  * 轴分开，一行就能回答「在跑吗 / 等我吗 / 有结果没看吗」。
+ * 节点颜色做成左侧细条：列表里混着多台电脑时，先按颜色分组，再看状态。
  */
 export function SessionRow({
 	nodeID,
 	session,
 	nodeName,
+	nodeColor,
 	state,
 }: {
 	nodeID: string;
 	session: Session;
 	nodeName?: string;
+	nodeColor?: string;
 	state?: SessionState;
 }) {
 	const styles = useThemedStyles(createStyles);
@@ -33,7 +37,11 @@ export function SessionRow({
 
 	return (
 		<Pressable
-			style={[styles.row, state === "waiting_permission" && styles.waiting]}
+			style={[
+				styles.row,
+				{ borderLeftColor: nodeColorSwatch(nodeColor) ?? "transparent" },
+				state === "waiting_permission" && styles.waiting,
+			]}
 			onPress={() => router.push(sessionRoute(nodeID, session.id))}
 		>
 			<View style={styles.titleRow}>
@@ -57,6 +65,9 @@ function createStyles(theme: Theme) {
 	return StyleSheet.create({
 		row: {
 			paddingVertical: 10,
+			// 始终留出 3px：有颜色时是识别条，没有时也不让文字左右跳。
+			borderLeftWidth: 3,
+			paddingLeft: 8,
 			borderBottomWidth: 1,
 			borderBottomColor: colors.borderSubtle,
 			gap: 2,

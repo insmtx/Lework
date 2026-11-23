@@ -10,6 +10,8 @@ export interface ComposerChipProps {
 	value: string;
 	/** 状态点；技能与命令没有在线概念，传 none。 */
 	status?: "online" | "offline" | "none";
+	/** 可选节点色；用同色描边与浅底区分当前选中的是哪台电脑。 */
+	accentColor?: string;
 	disabled?: boolean;
 	onPress?: () => void;
 }
@@ -29,7 +31,15 @@ export function ComposerChip(props: ComposerChipProps) {
 		<Pressable
 			disabled={!interactive}
 			onPress={props.onPress}
-			style={[styles.chip, props.disabled && styles.disabled]}
+			style={[
+				styles.chip,
+				props.disabled && styles.disabled,
+				// 8 位十六进制让色值自带透明度，省掉一套 alpha 换算。
+				props.accentColor && {
+					borderColor: props.accentColor,
+					backgroundColor: `${props.accentColor}14`,
+				},
+			]}
 		>
 			{status === "none" ? null : (
 				<View style={[styles.dot, status === "online" ? styles.dotOnline : styles.dotOffline]} />

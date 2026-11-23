@@ -1,6 +1,6 @@
 import type { SessionState } from "@lework/api";
 import { router } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
 	Animated,
 	Modal,
@@ -14,6 +14,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { projectRoute, sessionRoute } from "../config";
+import { nodeColorSwatch } from "../nodes/colors";
 import { projectDisplayName } from "../projects/model";
 import { formatRelativeTime, RECENT_SESSION_LIMIT, type SidebarGroup } from "../sidebar/model";
 import type { Theme } from "../theme/theme";
@@ -25,11 +26,13 @@ import { BellButton } from "./top-bar";
 
 function ProjectGroup({
 	group,
+	nodeColors,
 	stateOf,
 	onOpenProject,
 	onOpenSession,
 }: {
 	group: SidebarGroup;
+	nodeColors: Record<string, string>;
 	stateOf: (nodeID: string, sessionID: string) => SessionState | undefined;
 	onOpenProject: () => void;
 	onOpenSession: (nodeID: string, sessionID: string) => void;
@@ -52,7 +55,11 @@ function ProjectGroup({
 				return (
 					<Pressable
 						key={`${row.nodeID}:${row.session.id}`}
-						style={[styles.sessionRow, state === "waiting_permission" && styles.sessionRowWaiting]}
+						style={[
+							styles.sessionRow,
+							{ borderLeftColor: nodeColorSwatch(nodeColors[row.nodeID]) ?? "transparent" },
+							state === "waiting_permission" && styles.sessionRowWaiting,
+						]}
 						onPress={() => onOpenSession(row.nodeID, row.session.id)}
 					>
 						<SessionStatusDot state={state} />
@@ -98,6 +105,10 @@ export function AppDrawer() {
 	const panelWidth = Math.min(Math.round(width * 0.88), 360);
 	const progress = useRef(new Animated.Value(0)).current;
 	const [userOpen, setUserOpen] = useState(false);
+	const nodeColors = useMemo(
+		() => Object.fromEntries(projects.nodes.map((node) => [node.id, node.color ?? ""])),
+		[projects.nodes],
+	);
 
 	useEffect(() => {
 		if (!drawerOpen) return;
@@ -210,6 +221,7 @@ export function AppDrawer() {
 								<ProjectGroup
 									key={group.project.key}
 									group={group}
+									nodeColors={nodeColors}
 									stateOf={sessionState}
 									onOpenProject={() => openProject(group.project.key)}
 									onOpenSession={openSession}
@@ -303,7 +315,9 @@ function createStyles(theme: Theme) {
 			flexDirection: "row",
 			alignItems: "center",
 			gap: 8,
-			paddingLeft: 16,
+			// 左侧 3px 固定留白，节点色缺省时也不让文字左右跳。
+			borderLeftWidth: 3,
+			paddingLeft: 13,
 			paddingRight: 4,
 			paddingVertical: 7,
 		},

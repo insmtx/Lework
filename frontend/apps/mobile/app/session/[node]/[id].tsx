@@ -15,6 +15,7 @@ import {
 } from "react-native";
 
 import { sessionRoute } from "../../../src/config";
+import { nodeColorSwatch } from "../../../src/nodes/colors";
 import { findProjectForSession, projectDirectoryOnNode } from "../../../src/projects/model";
 import { MessageRow } from "../../../src/session/message-row";
 import { filterVisibleMessages } from "../../../src/session/messages";
@@ -211,6 +212,12 @@ export default function SessionScreen() {
 	const title = current?.title || "会话";
 	useScreenTitle(title);
 
+	// 顶栏圆点标识当前会话属于哪台电脑；颜色只做机器身份，不替代状态。
+	const nodeColor = useMemo(
+		() => nodeColorSwatch(projects.nodes.find((node) => node.id === nodeID)?.color),
+		[projects.nodes, nodeID],
+	);
+
 	// overview 命中时以它为准：它是服务端事件投影，本地事件断档后仍能自愈。
 	const status = useMemo(() => {
 		const fromOverview = sessionState(nodeID, sessionID);
@@ -382,7 +389,10 @@ export default function SessionScreen() {
 				title={title}
 				onTitlePress={() => setSwitcherOpen(true)}
 				status={
-					<SessionStatusIcon state={shownStatus} color={statusColor(theme, tone)} size={15} />
+					<View style={styles.topStatus}>
+						{nodeColor ? <View style={[styles.nodeDot, { backgroundColor: nodeColor }]} /> : null}
+						<SessionStatusIcon state={shownStatus} color={statusColor(theme, tone)} size={15} />
+					</View>
 				}
 				extra={
 					<Pressable style={styles.stopButton} onPress={() => void stop()}>
@@ -498,6 +508,8 @@ function createStyles(theme: Theme) {
 	const { colors } = theme;
 	return StyleSheet.create({
 		screen: { flex: 1, backgroundColor: colors.background },
+		topStatus: { flexDirection: "row", alignItems: "center", gap: 5 },
+		nodeDot: { width: 8, height: 8, borderRadius: 4 },
 		center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24, gap: 8 },
 		title: { fontSize: 18, fontWeight: "600", color: colors.text },
 		hint: { color: colors.textSecondary, textAlign: "center" },

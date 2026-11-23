@@ -3,6 +3,7 @@ import { useMemo } from "react";
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 
 import { sessionRoute } from "../src/config";
+import { nodeColorSwatch } from "../src/nodes/colors";
 import { pendingRows } from "../src/pending/derive";
 import type { Theme } from "../src/theme/theme";
 import { useThemedStyles } from "../src/theme/use-theme";
@@ -16,11 +17,16 @@ export default function PendingScreen() {
 	const {
 		settings,
 		settingsLoading,
+		projects,
 		overviewNodes: nodes,
 		overviewLoading: loading,
 		overviewError: error,
 		refreshOverview: refresh,
 	} = useAppShell();
+	const nodeByID = useMemo(
+		() => Object.fromEntries(projects.nodes.map((node) => [node.id, node])),
+		[projects.nodes],
+	);
 
 	const rows = useMemo(
 		() =>
@@ -56,19 +62,23 @@ export default function PendingScreen() {
 			keyExtractor={(row) => `${row.nodeID}:${row.sessionID}`}
 			refreshControl={<RefreshControl refreshing={loading} onRefresh={refresh} />}
 			ListHeaderComponent={error ? <Text style={styles.error}>{error}</Text> : undefined}
-			renderItem={({ item }) => (
-				<Pressable
-					style={styles.row}
-					onPress={() => router.push(sessionRoute(item.nodeID, item.sessionID))}
-				>
-					<Text style={styles.title} numberOfLines={1}>
-						{item.title || item.sessionID}
-					</Text>
-					<Text style={styles.meta} numberOfLines={1}>
-						{item.nodeID} · {item.count} 条待审批
-					</Text>
-				</Pressable>
-			)}
+			renderItem={({ item }) => {
+				const node = nodeByID[item.nodeID];
+				const swatch = nodeColorSwatch(node?.color) ?? "transparent";
+				return (
+					<Pressable
+						style={[styles.row, { borderLeftColor: swatch }]}
+						onPress={() => router.push(sessionRoute(item.nodeID, item.sessionID))}
+					>
+						<Text style={styles.title} numberOfLines={1}>
+							{item.title || item.sessionID}
+						</Text>
+						<Text style={styles.meta} numberOfLines={1}>
+							{node?.name ?? item.nodeID} · {item.count} 条待审批
+						</Text>
+					</Pressable>
+				);
+			}}
 			ListEmptyComponent={
 				<View style={styles.center}>
 					<Text style={styles.title}>没有待审批</Text>
@@ -90,6 +100,7 @@ function createStyles(theme: Theme) {
 		error: { color: colors.danger, marginBottom: 8 },
 		row: {
 			borderWidth: 1,
+			borderLeftWidth: 4,
 			borderColor: colors.border,
 			backgroundColor: colors.surface,
 			borderRadius: 10,
