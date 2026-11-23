@@ -344,6 +344,20 @@ describe("认证、认领与移除节点", () => {
 		expect(view.name).toBe("客厅的电脑");
 	});
 
+	it("setNodeColor 用 PATCH 提交颜色", async () => {
+		stubFetch(new Response(JSON.stringify({ id: "node_1", color: "blue" }), { status: 200 }));
+		const view = await createApiClient({ baseUrl: "http://box:8787" }).setNodeColor(
+			"node 1",
+			"blue",
+		);
+
+		expect(String(fetchMock.mock.calls[0]?.[0])).toBe("http://box:8787/api/nodes/node%201");
+		const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+		expect(init.method).toBe("PATCH");
+		expect(JSON.parse(String(init.body))).toEqual({ color: "blue" });
+		expect(view.color).toBe("blue");
+	});
+
 	it("createClaim 提交节点名并返回短期码", async () => {
 		stubFetch(
 			new Response(JSON.stringify({ code: "AB234", node_name: "box", expires_at: "t" }), {

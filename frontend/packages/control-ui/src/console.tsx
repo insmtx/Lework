@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { NodeSidebar } from "./components/node-sidebar";
 import { SessionPanel } from "./components/session-panel";
 import { useControlApi } from "./context";
+import { LatestRequestMap } from "./latest-request";
 import type {
 	ControlEvent,
 	Message,
@@ -128,6 +129,8 @@ export function ControlConsole({
 
 	const messagesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const sessionsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	// 同一节点连续改色时只认最后一次，避免慢请求的回滚覆盖新选择。
+	const nodeColorRequests = useRef(new LatestRequestMap());
 
 	const refreshNodes = useCallback(async () => {
 		try {
@@ -456,6 +459,29 @@ export function ControlConsole({
 		);
 	};
 
+	// 颜色是每账号自己的显示偏好：先本地生效，失败再回滚，避免等待往返。
+	const setNodeColor = async (nodeID: string, color: string) => {
+		const request = nodeColorRequests.current.begin(nodeID);
+		const previous = nodes.find((node) => node.id === nodeID)?.color ?? "";
+		setNodes((current) => current.map((node) => (node.id === nodeID ? { ...node, color } : node)));
+		try {
+			const updated = await client.setNodeColor(nodeID, color);
+			if (!nodeColorRequests.current.isCurrent(nodeID, request)) return;
+			setNodes((current) =>
+				current.map((node) =>
+					node.id === nodeID ? { ...node, color: updated.color ?? "" } : node,
+				),
+			);
+		} catch (error) {
+			// 过期请求的失败不再回滚：用户已经选了更新的颜色，服务端也已接受它。
+			if (!nodeColorRequests.current.isCurrent(nodeID, request)) return;
+			setNodes((current) =>
+				current.map((node) => (node.id === nodeID ? { ...node, color: previous } : node)),
+			);
+			throw error;
+		}
+	};
+
 	const remove = async (sessionID: string) => {
 		if (!selectedNodeID) throw new Error("Select a connected node first");
 		await client.deleteSession(selectedNodeID, sessionID);
@@ -564,6 +590,7 @@ export function ControlConsole({
 			sessionDirectory={sessionDirectory}
 			onFilterSessions={setSessionDirectory}
 			onRenameNode={renameNode}
+			onSetNodeColor={setNodeColor}
 			onRenameSession={rename}
 			onDeleteSession={remove}
 			nodeHealth={nodeHealth}

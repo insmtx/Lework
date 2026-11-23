@@ -65,6 +65,7 @@ export interface ApiClient {
 	createClaim(nodeName?: string): Promise<ClaimCode>;
 	deleteNode(node: string): Promise<unknown>;
 	renameNode(node: string, name: string): Promise<NodeView>;
+	setNodeColor(node: string, color: string): Promise<NodeView>;
 	listNodes(): Promise<NodeView[]>;
 	getNode(node: string): Promise<NodeView>;
 	getNodeProjects(node: string): Promise<NodeProject[]>;
@@ -198,6 +199,12 @@ export function createApiClient(ctx: RequestContext = {}): ApiClient {
 			request<NodeView>(`/api/nodes/${encodeURIComponent(node)}`, {
 				method: "PATCH",
 				body: JSON.stringify({ name }),
+			}),
+
+		setNodeColor: (node, color) =>
+			request<NodeView>(`/api/nodes/${encodeURIComponent(node)}`, {
+				method: "PATCH",
+				body: JSON.stringify({ color }),
 			}),
 
 		listNodes: () => request<NodeView[]>("/api/nodes"),

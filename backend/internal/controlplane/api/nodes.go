@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -18,9 +19,22 @@ import (
 // 响应返回，必须挡住无上限的请求体。
 const maxNodeAliasRunes = 64
 
-// nodeRenameRequest 是 PATCH /api/nodes/{id} 的请求体；空名表示清除别名。
-type nodeRenameRequest struct {
-	Name string `json:"name"`
+// nodeColorPattern 限制颜色 token 的形状：前端目前只发 8 个预设名，
+// 但格式校验不锁死枚举，后续加色或换色板不需要再改后端。
+var nodeColorPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,23}$`)
+
+// validNodeColor 判断颜色是否合法；空串表示清除，视为合法。
+func validNodeColor(color string) bool {
+	return color == "" || nodeColorPattern.MatchString(color)
+}
+
+// nodeUpdateRequest 是 PATCH /api/nodes/{id} 的请求体。
+//
+// 指针用于区分「本次没提交该字段」与「提交空串表示清除」；两个字段都空
+// 视为调用方错误，避免一次无意义的写请求。
+type nodeUpdateRequest struct {
+	Name  *string `json:"name"`
+	Color *string `json:"color"`
 }
 
 // nodeView 是浏览器看到的节点视图。
@@ -34,6 +48,7 @@ type nodeRenameRequest struct {
 type nodeView struct {
 	ID             string    `json:"id"`
 	Name           string    `json:"name"`
+	Color          string    `json:"color"`
 	OS             string    `json:"os"`
 	Arch           string    `json:"arch"`
 	AgentVersion   string    `json:"agent_version"`
@@ -116,28 +131,51 @@ func (a *API) handleGetNode(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, view)
 }
 
-// handleRenameNode 设置调用者自己的节点展示名。
+// handleUpdateNode 更新调用者自己的节点展示偏好：展示名与颜色。
 //
-// 别名存在调用者的偏好命名空间里，不碰 nodes.name：agent 每次 hello 都会用
-// 主机名覆盖展示字段，节点级改名无法长期保留，而「每人看到自己的名字」也
-// 不应对其他共享成员生效。空名清除别名，回退到 agent 上报的主机名。
-func (a *API) handleRenameNode(w http.ResponseWriter, r *http.Request) {
-	var req nodeRenameRequest
+// 两者都存在调用者的偏好命名空间里，不碰 nodes.name：agent 每次 hello 都会
+// 用主机名覆盖节点记录，只有用户偏好能长期保留，也天然做到「每人看自己的」。
+func (a *API) handleUpdateNode(w http.ResponseWriter, r *http.Request) {
+	var req nodeUpdateRequest
 	if err := decodeRequest(w, r, &req); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid_request", "invalid request body")
 		return
 	}
-	name := strings.TrimSpace(req.Name)
-	if utf8.RuneCountInString(name) > maxNodeAliasRunes {
-		writeAPIError(w, http.StatusBadRequest, "invalid_request", "name is too long")
+	if req.Name == nil && req.Color == nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", "no fields to update")
 		return
+	}
+
+	name := ""
+	if req.Name != nil {
+		name = strings.TrimSpace(*req.Name)
+		if utf8.RuneCountInString(name) > maxNodeAliasRunes {
+			writeAPIError(w, http.StatusBadRequest, "invalid_request", "name is too long")
+			return
+		}
+	}
+	color := ""
+	if req.Color != nil {
+		color = strings.ToLower(strings.TrimSpace(*req.Color))
+		if !validNodeColor(color) {
+			writeAPIError(w, http.StatusBadRequest, "invalid_request", "invalid color")
+			return
+		}
 	}
 
 	principal := a.principal(r)
 	nodeID := r.PathValue("id")
-	if err := a.store.SetNodeAliasFor(r.Context(), principal.UserID, nodeID, name); err != nil {
-		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
-		return
+	if req.Name != nil {
+		if err := a.store.SetNodeAliasFor(r.Context(), principal.UserID, nodeID, name); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
+			return
+		}
+	}
+	if req.Color != nil {
+		if err := a.store.SetNodeColorFor(r.Context(), principal.UserID, nodeID, color); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal error")
+			return
+		}
 	}
 
 	view, ok, err := a.findNodeViewFor(r.Context(), principal.UserID, nodeID)
@@ -226,10 +264,10 @@ func (a *API) findNode(ctx context.Context, nodeID string) (nodeView, bool, erro
 	return nodeView{}, false, nil
 }
 
-// findNodeViewFor 在 findNode 之上套用某个账号的展示名别名。
+// findNodeViewFor 在 findNode 之上套用某个账号的展示名与颜色。
 //
-// 单节点响应、认领响应与改名响应必须和列表视图一致，否则用户会看到「列表里
-// 是别名、点开又变回主机名」的分叉。
+// 单节点响应、认领响应与更新响应必须和列表视图一致，否则用户会看到「列表里
+// 是别名/颜色、点开又变回默认」的分叉。
 func (a *API) findNodeViewFor(ctx context.Context, userID, nodeID string) (nodeView, bool, error) {
 	view, ok, err := a.findNode(ctx, nodeID)
 	if err != nil || !ok {
@@ -242,19 +280,33 @@ func (a *API) findNodeViewFor(ctx context.Context, userID, nodeID string) (nodeV
 	if ok {
 		view.Name = alias
 	}
+	color, ok, err := a.store.GetNodeColorFor(ctx, userID, nodeID)
+	if err != nil {
+		return nodeView{}, false, err
+	}
+	if ok {
+		view.Color = color
+	}
 	return view, true, nil
 }
 
-// applyNodeAliases 把某账号的节点别名写进一批视图；没有别名的节点保留
-// agent 上报的主机名。
-func (a *API) applyNodeAliases(ctx context.Context, userID string, views []nodeView) error {
+// applyNodePreferences 把某账号的节点别名与颜色写进一批视图；没有设置的
+// 节点保留 agent 上报的主机名与未设色状态。
+func (a *API) applyNodePreferences(ctx context.Context, userID string, views []nodeView) error {
 	aliases, err := a.store.ListNodeAliasesFor(ctx, userID)
+	if err != nil {
+		return err
+	}
+	colors, err := a.store.ListNodeColorsFor(ctx, userID)
 	if err != nil {
 		return err
 	}
 	for i := range views {
 		if alias := aliases[views[i].ID]; alias != "" {
 			views[i].Name = alias
+		}
+		if color := colors[views[i].ID]; color != "" {
+			views[i].Color = color
 		}
 	}
 	return nil

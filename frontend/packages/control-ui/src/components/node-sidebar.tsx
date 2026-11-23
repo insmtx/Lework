@@ -14,14 +14,15 @@ import {
 	RefreshCw,
 	RotateCcw,
 	Search,
-	Server,
 	Square,
 	TerminalSquare,
 	Trash2,
 	X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { nodeColorStyle } from "../node-colors";
 import type { NodeHealth, NodeView, Session } from "../types";
+import { NodeColorPicker } from "./node-color-picker";
 
 interface NodeSidebarProps {
 	nodes: NodeView[];
@@ -36,6 +37,7 @@ interface NodeSidebarProps {
 	sessionDirectory: string;
 	onFilterSessions: (directory: string) => void;
 	onRenameNode: (nodeID: string, name: string) => Promise<void>;
+	onSetNodeColor: (nodeID: string, color: string) => Promise<void>;
 	onRenameSession: (sessionID: string, title: string) => Promise<void>;
 	onDeleteSession: (sessionID: string) => Promise<void>;
 	nodeHealth: NodeHealth | null;
@@ -84,6 +86,7 @@ export function NodeSidebar({
 	sessionDirectory,
 	onFilterSessions,
 	onRenameNode,
+	onSetNodeColor,
 	onRenameSession,
 	onDeleteSession,
 	nodeHealth,
@@ -159,6 +162,15 @@ export function NodeSidebar({
 			setActionError(error instanceof Error ? error.message : "Unable to rename node");
 		} finally {
 			setRenamingNode(false);
+		}
+	};
+
+	const applyNodeColor = async (nodeID: string, color: string) => {
+		setActionError(null);
+		try {
+			await onSetNodeColor(nodeID, color);
+		} catch (error) {
+			setActionError(error instanceof Error ? error.message : "Unable to set node color");
 		}
 	};
 
@@ -251,8 +263,9 @@ export function NodeSidebar({
 							No node registered. Start <code className="text-[11px]">lework agent</code>.
 						</div>
 					) : (
-						nodes.map((node) =>
-							renamingNodeID === node.id ? (
+						nodes.map((node) => {
+							const nodeStyle = nodeColorStyle(node.color);
+							return renamingNodeID === node.id ? (
 								<form
 									key={node.id}
 									onSubmit={submitNodeRename}
@@ -295,12 +308,30 @@ export function NodeSidebar({
 								<div
 									key={node.id}
 									className={cn(
-										"flex w-full items-center gap-0.5 rounded-xl border border-border/70 bg-card p-1 shadow-sm transition-colors md:rounded-lg md:border-transparent md:shadow-none",
+										"relative flex w-full items-center gap-0.5 rounded-xl border border-border/70 bg-card p-1 shadow-sm transition-colors md:rounded-lg md:border-transparent md:shadow-none",
 										node.id === selectedNodeID
 											? "ring-1 ring-primary/30 md:bg-background md:shadow-sm md:ring-border"
 											: "md:bg-transparent md:hover:bg-muted",
 									)}
 								>
+									{nodeStyle && node.id === selectedNodeID ? (
+										<span
+											aria-hidden
+											className={cn(
+												"pointer-events-none absolute inset-0 rounded-xl md:rounded-lg",
+												nodeStyle.wash,
+											)}
+										/>
+									) : null}
+									{nodeStyle ? (
+										<span
+											aria-hidden
+											className={cn(
+												"my-1 ml-0.5 w-[3px] shrink-0 self-stretch rounded-full",
+												nodeStyle.bar,
+											)}
+										/>
+									) : null}
 									<button
 										type="button"
 										onClick={() => onSelectNode(node.id)}
@@ -322,8 +353,12 @@ export function NodeSidebar({
 												seen {shortTime(node.last_seen)}
 											</span>
 										</span>
-										<Server className="size-4 shrink-0 text-muted-foreground/60" />
 									</button>
+									<NodeColorPicker
+										nodeName={node.name}
+										value={node.color}
+										onSelect={(color) => applyNodeColor(node.id, color)}
+									/>
 									<Button
 										size="icon-xs"
 										variant="ghost"
@@ -333,8 +368,8 @@ export function NodeSidebar({
 										<Pencil className="size-3.5" />
 									</Button>
 								</div>
-							),
-						)
+							);
+						})
 					)}
 				</div>
 			</div>
