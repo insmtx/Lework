@@ -75,8 +75,8 @@ func (a *API) listVisibleNodes(ctx context.Context, p authz.Principal) ([]nodeVi
 		}
 		filtered = append(filtered, view)
 	}
-	if err := a.applyNodeAliases(ctx, p.UserID, filtered); err != nil {
-		return nil, fmt.Errorf("apply node aliases: %w", err)
+	if err := a.applyNodePreferences(ctx, p.UserID, filtered); err != nil {
+		return nil, fmt.Errorf("apply node preferences: %w", err)
 	}
 	return filtered, nil
 }
