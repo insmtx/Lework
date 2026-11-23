@@ -93,5 +93,8 @@ export const NODE_COLOR_STYLES: Record<NodeColorToken, NodeColorStyle> = {
 /** nodeColorStyle 把服务端 token 转成 Tailwind 类；未知值按未设色处理。 */
 export function nodeColorStyle(token?: string | null): NodeColorStyle | null {
 	if (!token) return null;
-	return NODE_COLOR_STYLES[token as NodeColorToken] ?? null;
+	// 服务端只校验 token 形状，因此必须只认预设列表；直接用对象下标会把
+	// "constructor" 这类原型链名字当成命中，返回函数并渲染出空圆点。
+	const matched = NODE_COLOR_TOKENS.find((candidate) => candidate === token);
+	return matched ? NODE_COLOR_STYLES[matched] : null;
 }
