@@ -18,7 +18,7 @@
 ![Web](./docs/images/badges/web.svg)
 [![Website](./docs/images/badges/website.svg)](https://lework.ai/)
 
-**目录** · [当前阶段](#当前阶段) · [企业级愿景](#企业级愿景) · [一分钟理解](#一分钟理解) · [核心能力](#核心能力) · [系统架构](#系统架构) · [快速开始](#快速开始) · [开发指南](#开发指南) · [相关文档](#相关文档) · [贡献指南](#贡献指南) · [社区与支持](#社区与支持) · [许可证](#许可证)
+**目录** · [当前阶段](#当前阶段) · [企业级愿景](#企业级愿景) · [一分钟理解](#一分钟理解) · [核心能力](#核心能力) · [系统架构](#系统架构) · [下载](#下载) · [快速开始](#快速开始) · [开发指南](#开发指南) · [相关文档](#相关文档) · [贡献指南](#贡献指南) · [社区与支持](#社区与支持) · [许可证](#许可证)
 
 </div>
 
@@ -88,6 +88,42 @@ lework agent (`lework agent`) ──► opencode serve (127.0.0.1)
 - 数据真相：Session、消息、diff、权限、文件均以 OpenCode 为准。
 
 详见 [架构概览](docs/architecture/overview.md) 与 [当前实现基线](docs/architecture/as-built.md)。
+
+## 下载
+
+预构建产物发布在 COS，当前稳定版为 **v0.13.5**（最新版本号以
+[LATEST.txt](https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/LATEST.txt) 为准）。
+换版本时把链接路径里的 `0.13.5` 替换成目标版本即可。
+
+### 桌面端
+
+| 平台 | 安装包 |
+|---|---|
+| macOS（Apple silicon） | [Lework-0.13.5-mac-arm64.dmg](https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/Lework-0.13.5-mac-arm64.dmg) |
+| macOS（Intel） | [Lework-0.13.5-mac-x64.dmg](https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/Lework-0.13.5-mac-x64.dmg) |
+| Windows x64 | [Lework-0.13.5-win-x64.exe](https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/Lework-0.13.5-win-x64.exe) |
+| Linux x64（AppImage） | [Lework-0.13.5-linux-x86_64.AppImage](https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/0.13.5/linux/x64/Lework-0.13.5-linux-x86_64.AppImage) |
+| Linux x64（deb） | [Lework-0.13.5-linux-amd64.deb](https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/Lework-0.13.5-linux-amd64.deb) |
+
+### 移动端
+
+COS 不提供 `.apk` 直接下载，Android 安装包以 zip 分发，解压后安装：
+
+- [lework-android-0.13.5.zip](https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/0.13.5/android/lework-android-0.13.5.zip)
+
+### 服务端 / 节点二进制
+
+单文件二进制，同时包含 `lework serve` 与 `lework agent`，控制面界面已内嵌。
+
+| 平台 | 包 |
+|---|---|
+| Linux amd64 | [lework-linux_amd64-0.13.5.tar.gz](https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/0.13.5/server/lework-linux_amd64-0.13.5.tar.gz) |
+| Linux arm64 | [lework-linux_arm64-0.13.5.tar.gz](https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/0.13.5/server/lework-linux_arm64-0.13.5.tar.gz) |
+| macOS arm64 | [lework-darwin_arm64-0.13.5.tar.gz](https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/0.13.5/server/lework-darwin_arm64-0.13.5.tar.gz) |
+| macOS amd64 | [lework-darwin_amd64-0.13.5.tar.gz](https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/0.13.5/server/lework-darwin_amd64-0.13.5.tar.gz) |
+| Windows amd64 | [lework-windows_amd64-0.13.5.zip](https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/0.13.5/server/lework-windows_amd64-0.13.5.zip) |
+
+校验和：[0.13.5/SHA256SUMS.txt](https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/0.13.5/SHA256SUMS.txt)
 
 ## 快速开始
 

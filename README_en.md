@@ -18,7 +18,7 @@ Open-source, self-hostable, enterprise-grade AI work platform.
 ![Web](./docs/images/badges/web.svg)
 [![Website](./docs/images/badges/website.svg)](https://lework.ai/)
 
-**Contents** · [Current Stage](#current-stage) · [Enterprise Vision](#enterprise-vision) · [Understand in a Minute](#understand-in-a-minute) · [Core Capabilities](#core-capabilities) · [System Architecture](#system-architecture) · [Quick Start](#quick-start) · [Development Guide](#development-guide) · [Related Documents](#related-documents) · [Contributing](#contributing) · [Community & Support](#community--support) · [License](#license)
+**Contents** · [Current Stage](#current-stage) · [Enterprise Vision](#enterprise-vision) · [Understand in a Minute](#understand-in-a-minute) · [Core Capabilities](#core-capabilities) · [System Architecture](#system-architecture) · [Download](#download) · [Quick Start](#quick-start) · [Development Guide](#development-guide) · [Related Documents](#related-documents) · [Contributing](#contributing) · [Community & Support](#community--support) · [License](#license)
 
 </div>
 
@@ -88,6 +88,45 @@ lework agent (`lework agent`) ──► opencode serve (127.0.0.1)
 - Source of truth: sessions, messages, diffs, approvals, and files all come from OpenCode.
 
 See [Architecture overview](docs/architecture/overview.md) and [As-built baseline](docs/architecture/as-built.md).
+
+## Download
+
+Prebuilt artifacts are published to COS. The current stable version is **v0.13.5**;
+the latest version number is always in
+[LATEST.txt](https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/LATEST.txt).
+To fetch another version, replace `0.13.5` in the URLs below.
+
+### Desktop
+
+| Platform | Installer |
+|---|---|
+| macOS (Apple silicon) | [Lework-0.13.5-mac-arm64.dmg](https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/Lework-0.13.5-mac-arm64.dmg) |
+| macOS (Intel) | [Lework-0.13.5-mac-x64.dmg](https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/Lework-0.13.5-mac-x64.dmg) |
+| Windows x64 | [Lework-0.13.5-win-x64.exe](https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/Lework-0.13.5-win-x64.exe) |
+| Linux x64 (AppImage) | [Lework-0.13.5-linux-x86_64.AppImage](https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/0.13.5/linux/x64/Lework-0.13.5-linux-x86_64.AppImage) |
+| Linux x64 (deb) | [Lework-0.13.5-linux-amd64.deb](https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/Lework-0.13.5-linux-amd64.deb) |
+
+### Mobile
+
+COS does not serve `.apk` files directly, so the Android build is distributed as a
+zip; unzip it to install:
+
+- [lework-android-0.13.5.zip](https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/0.13.5/android/lework-android-0.13.5.zip)
+
+### Server / node binaries
+
+Single-file binaries containing both `lework serve` and `lework agent`, with the
+control plane UI embedded.
+
+| Platform | Archive |
+|---|---|
+| Linux amd64 | [lework-linux_amd64-0.13.5.tar.gz](https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/0.13.5/server/lework-linux_amd64-0.13.5.tar.gz) |
+| Linux arm64 | [lework-linux_arm64-0.13.5.tar.gz](https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/0.13.5/server/lework-linux_arm64-0.13.5.tar.gz) |
+| macOS arm64 | [lework-darwin_arm64-0.13.5.tar.gz](https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/0.13.5/server/lework-darwin_arm64-0.13.5.tar.gz) |
+| macOS amd64 | [lework-darwin_amd64-0.13.5.tar.gz](https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/0.13.5/server/lework-darwin_amd64-0.13.5.tar.gz) |
+| Windows amd64 | [lework-windows_amd64-0.13.5.zip](https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/0.13.5/server/lework-windows_amd64-0.13.5.zip) |
+
+Checksums: [0.13.5/SHA256SUMS.txt](https://leros-1395325824.cos.ap-beijing.myqcloud.com/application/0.13.5/SHA256SUMS.txt)
 
 ## Quick Start
 
