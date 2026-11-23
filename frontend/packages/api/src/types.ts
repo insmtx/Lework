@@ -1,6 +1,8 @@
 export interface NodeView {
 	id: string;
 	name: string;
+	/** 每用户自己的节点颜色 token；空或缺省表示未设色。 */
+	color?: string;
 	os: string;
 	arch: string;
 	agent_version: string;
