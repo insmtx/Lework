@@ -22,4 +22,12 @@ describe("nodeColorStyle", () => {
 		expect(nodeColorStyle(undefined)).toBeNull();
 		expect(nodeColorStyle(null)).toBeNull();
 	});
+
+	it("原型链上的名字不能被当成颜色", () => {
+		// 服务端只校验形状，"constructor" 能通过 regex；普通对象下标会命中原型，
+		// 返回函数而不是 null，导致渲染出没有样式的空圆点。
+		for (const token of ["constructor", "toString", "valueOf", "hasOwnProperty"]) {
+			expect(nodeColorStyle(token)).toBeNull();
+		}
+	});
 });
