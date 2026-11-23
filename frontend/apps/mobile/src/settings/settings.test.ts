@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
-	SETTINGS_KEY,
 	createSettingsStore,
-	normalizeBaseUrl,
+	DEFAULT_BASE_URL,
 	type KeyValueStore,
+	normalizeBaseUrl,
+	SETTINGS_KEY,
 	type Settings,
 } from "./settings";
 
@@ -34,6 +35,12 @@ describe("normalizeBaseUrl", () => {
 		expect(() => normalizeBaseUrl(" ")).toThrow();
 		expect(() => normalizeBaseUrl("ftp://box")).toThrow();
 		expect(() => normalizeBaseUrl("not-a-url")).toThrow();
+	});
+});
+
+describe("DEFAULT_BASE_URL", () => {
+	it("是登录页可直接使用的完整地址", () => {
+		expect(normalizeBaseUrl(DEFAULT_BASE_URL)).toBe(DEFAULT_BASE_URL);
 	});
 });
 

@@ -178,8 +178,8 @@ controlplane:
   token_file: ~/.config/Lework/enrollment.token
   request_timeout: 30s
   heartbeat_timeout: 35s
-  public_url: http://dev.ckeyer.com      # 已废弃：启动不再打印二维码，保留只为兼容旧配置
-  expo_url: http://dev.ckeyer.com:8082  # 已废弃，同上
+  public_url: http://le.ckeyer.com      # 已废弃：启动不再打印二维码，保留只为兼容旧配置
+  expo_url: http://le.ckeyer.com:8082  # 已废弃，同上
 
 nats:
   url: nats://127.0.0.1:4222

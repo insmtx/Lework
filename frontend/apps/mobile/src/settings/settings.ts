@@ -26,6 +26,14 @@ export interface SettingsStore {
 
 export const SETTINGS_KEY = "lework.settings.v1";
 
+/**
+ * DEFAULT_BASE_URL 是登录页预填的控制面地址。
+ *
+ * 取开发环境统一入口：用户第一次装好应用时不必先问清部署地址就能直接登录；
+ * 已保存的地址与深链参数仍然优先，只在两者都没有时兜底。
+ */
+export const DEFAULT_BASE_URL = "http://le.ckeyer.com";
+
 // normalizeBaseUrl 把用户输入收敛成可拼接的基址：去掉空白与末尾斜杠，
 // 只接受 http(s)，并拒绝没有协议的输入——移动端没有“同源”可依赖。
 export function normalizeBaseUrl(raw: string): string {
