@@ -296,7 +296,22 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x ./gradlew
-          ./gradlew assembleRelease --no-daemon --stacktrace
+          # tag 构建无法复用 main 的 Gradle 缓存（见 setup-gradle 的分支作用域），
+          # 插件仓库偶发不可用会直接卡在配置阶段；重试时刷新依赖，避免 Gradle 复用失败结果。
+          for attempt in 1 2 3; do
+            extra=()
+            if [ "$attempt" -gt 1 ]; then
+              extra=(--refresh-dependencies)
+            fi
+            if ./gradlew assembleRelease --no-daemon --stacktrace "${extra[@]}"; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "::warning::Gradle 构建失败（第 ${attempt} 次），30 秒后重试"
+              sleep 30
+            fi
+          done
+          exit 1
 
       - name: Verify APK signature
         working-directory: frontend/apps/mobile/android
