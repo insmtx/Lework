@@ -50,24 +50,5 @@ func (s *Store) GetNodeAliasFor(ctx context.Context, userID, nodeID string) (str
 // 列表与总览每次都要投影整页节点，逐个 GetPreferenceFor 会打出 N 次查询；
 // 这里只扫描该账号命名空间下的别名键。
 func (s *Store) ListNodeAliasesFor(ctx context.Context, userID string) (map[string]string, error) {
-	rows := make([]Preference, 0)
-	prefix := userKey(userID, nodeAliasKeyPrefix)
-	if err := s.db.WithContext(ctx).Where("key LIKE ?", prefix+"%").Find(&rows).Error; err != nil {
-		return nil, fmt.Errorf("list node aliases: %w", err)
-	}
-
-	out := make(map[string]string, len(rows))
-	for _, row := range rows {
-		key, ok := stripUserKey(userID, row.Key)
-		if !ok || !strings.HasPrefix(key, nodeAliasKeyPrefix) {
-			continue
-		}
-		nodeID := strings.TrimPrefix(key, nodeAliasKeyPrefix)
-		value := strings.TrimSpace(row.Value)
-		if nodeID == "" || value == "" {
-			continue
-		}
-		out[nodeID] = value
-	}
-	return out, nil
+	return s.listNodePrefsByPrefix(ctx, userID, nodeAliasKeyPrefix)
 }
