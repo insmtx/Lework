@@ -145,9 +145,15 @@ importers:
       '@electron-toolkit/tsconfig':
         specifier: ^2.0.0
         version: 2.0.0(@types/node@25.9.3)
+      '@lework/api':
+        specifier: workspace:*
+        version: link:../../packages/api
       '@lework/app-ui':
         specifier: workspace:*
         version: link:../../packages/app-ui
+      '@lework/control-ui':
+        specifier: workspace:*
+        version: link:../../packages/control-ui
       '@lework/store':
         specifier: workspace:*
         version: link:../../packages/store

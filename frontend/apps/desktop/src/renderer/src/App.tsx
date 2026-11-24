@@ -5,6 +5,7 @@ import {
 	clientUpdateApi,
 	isPrivateDeployment,
 } from "@lework/store";
+import { ConsoleShell, createConsoleNavigation } from "@lework/control-ui";
 import { ThemeProvider } from "@lework/ui/components/common/theme-provider";
 import { Button } from "@lework/ui/components/ui/button";
 import {
@@ -16,12 +17,12 @@ import {
 } from "@lework/ui/components/ui/dialog";
 import { Toaster } from "@lework/ui/components/ui/sonner";
 import { Download, Loader2, RotateCcw } from "lucide-react";
-import { useEffect, useState } from "react";
-import { HashRouter } from "react-router-dom";
+import { type ReactNode, useEffect, useState } from "react";
+import { HashRouter, useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import type { DesktopUpdateState } from "../../shared/auto-update";
-import { PrivateDeploymentGate } from "./components/PrivateDeploymentGate";
 import { AppRoutes } from "./routes";
+import { reloadDesktopRenderer } from "./utils/reload";
 
 const initialUpdateState: DesktopUpdateState = {
 	currentVersion: "0.0.0",
@@ -42,13 +43,29 @@ export default function App() {
 		<HashRouter>
 			<ThemeProvider>
 				<MacTitleBarDragRegion />
-				<PrivateDeploymentGate>
+				<DesktopShell>
 					<AppRoutes />
 					{isPrivateDeployment ? null : <ClientUpdateGate />}
-				</PrivateDeploymentGate>
+				</DesktopShell>
 				<Toaster />
 			</ThemeProvider>
 		</HashRouter>
+	);
+}
+
+// ConsoleShell 自带私有化配置门禁，桌面只需把 reload 换成主进程版本。
+function DesktopShell({ children }: { children: ReactNode }) {
+	const location = useLocation();
+	const navigate = useNavigate();
+	const navigation = createConsoleNavigation({
+		pathname: location.pathname,
+		push: navigate,
+	});
+
+	return (
+		<ConsoleShell navigation={navigation} onReload={reloadDesktopRenderer}>
+			{children}
+		</ConsoleShell>
 	);
 }
 
