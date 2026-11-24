@@ -12,6 +12,7 @@ import {
 	type ChannelImportance,
 	LEGACY_CHANNEL_IDS,
 } from "./channels";
+import type { CompletionAlert } from "./completion-alert";
 
 export { ANDROID_CHANNEL_ID, ANDROID_CHANNEL_ID_COMPLETIONS };
 
@@ -75,11 +76,7 @@ export async function registerForPush(
 
 	await ensureAndroidChannels();
 
-	let permission = await Notifications.getPermissionsAsync();
-	if (permission.status !== "granted") {
-		permission = await Notifications.requestPermissionsAsync();
-	}
-	if (permission.status !== "granted") return null;
+	if (!(await ensureNotificationPermission())) return null;
 
 	const projectId = Constants.expoConfig?.extra?.eas?.projectId;
 	if (typeof projectId !== "string" || projectId === "") {
@@ -99,4 +96,39 @@ export async function registerForPush(
 // unregisterPush 在关闭通知时撤销登记，避免控制面继续向这台设备推送。
 export async function unregisterPush(client: ApiClient, deviceID: string): Promise<void> {
 	await client.deleteDevice(deviceID);
+}
+
+/**
+ * ensureNotificationPermission 补齐通知权限；渠道已由启动流程创建。
+ *
+ * 返回 false 表示用户拒绝或系统不支持，调用方应静默降级，不要重复弹窗。
+ */
+export async function ensureNotificationPermission(): Promise<boolean> {
+	if (!Device.isDevice) return false;
+	let permission = await Notifications.getPermissionsAsync();
+	if (permission.status !== "granted") {
+		permission = await Notifications.requestPermissionsAsync();
+	}
+	return permission.status === "granted";
+}
+
+/**
+ * notifyCompletion 立即发一条本地完成提醒。
+ *
+ * 走 completions-v3 渠道，声音与震动交给系统渠道决定；没有权限时安静放弃，
+ * 不能用一次任务完成把用户拽去授权弹窗。
+ */
+export async function notifyCompletion(alert: CompletionAlert): Promise<void> {
+	const permission = await Notifications.getPermissionsAsync();
+	if (permission.status !== "granted") return;
+
+	await Notifications.scheduleNotificationAsync({
+		content: {
+			title: alert.title,
+			body: alert.body,
+			sound: "default",
+			data: { node: alert.nodeID, session: alert.sessionID, kind: alert.kind },
+		},
+		trigger: { channelId: ANDROID_CHANNEL_ID_COMPLETIONS },
+	});
 }

@@ -28,17 +28,30 @@ export function controlEventsURL(baseUrl: string, opts: ControlEventFilter = {})
 	return `${baseUrl}/api/events${query}`;
 }
 
+/** ControlEventOptions 让调用方选择是否在后台保持事件流。 */
+export interface ControlEventOptions {
+	filter?: ControlEventFilter;
+	/**
+	 * keepAlive 让事件流在 App 切后台后继续持有，直到系统冻结或回收进程。
+	 *
+	 * 只有总览流开启：完成提醒靠它才能在后台响。其余流切后台即断开，避免
+	 * 多条 15 秒心跳的常驻连接一起消耗移动网络与电量。
+	 */
+	keepAlive?: boolean;
+}
+
 // useControlEvents 维持一条到控制面的事件流。
 //
-// 移动端长期挂 SSE 会被系统杀掉，所以切后台就断开；回前台立即重连并让
-// 调用方重拉快照，用快照纠正断线期间错过的增量。令牌只放在 header 里，
-// 永远不进 URL。
+// 默认切后台就断开：移动端长期挂 SSE 会被系统杀掉，回前台统一重连并让
+// 调用方重拉快照，用快照纠正断线期间错过的增量。keepAlive 的流例外，见上。
+// 令牌只放在 header 里，永远不进 URL。
 export function useControlEvents(
 	settings: Settings | null,
 	onEvent: (event: ControlEvent) => void,
 	onResync: () => void,
-	filter?: ControlEventFilter,
+	options: ControlEventOptions = {},
 ): { connected: boolean } {
+	const { filter, keepAlive = false } = options;
 	const [connected, setConnected] = useState(false);
 	const onEventRef = useRef(onEvent);
 	const onResyncRef = useRef(onResync);
@@ -61,9 +74,9 @@ export function useControlEvents(
 		}
 
 		let stopped = false;
-		// foreground 控制重连：切后台必须彻底停下，否则系统会一直拉起
-		// 连接，既费电又会在回前台时出现两条流。
-		let foreground = AppState.currentState === "active";
+		// allowed 控制重连：默认切后台彻底停下，keepAlive 的流则交给系统裁决
+		// ——进程活着就能继续收事件，被冻结/回收时连接自然失效。
+		let allowed = keepAlive || AppState.currentState === "active";
 		let source: EventSource | null = null;
 		let timer: ReturnType<typeof setTimeout> | null = null;
 		let attempt = 0;
@@ -79,7 +92,7 @@ export function useControlEvents(
 		};
 
 		const schedule = () => {
-			if (stopped || !foreground || timer) return;
+			if (stopped || !allowed || timer) return;
 			const delay = nextRetryDelay(attempt);
 			attempt += 1;
 			timer = setTimeout(() => {
@@ -89,7 +102,7 @@ export function useControlEvents(
 		};
 
 		const connect = () => {
-			if (stopped || !foreground) return;
+			if (stopped || !allowed) return;
 			clearTimer();
 			closeSource();
 			const next = new EventSource<"resync">(
@@ -139,15 +152,16 @@ export function useControlEvents(
 		connect();
 
 		const subscription = AppState.addEventListener("change", (state) => {
-			const wasForeground = foreground;
-			foreground = state === "active";
-			if (foreground) {
-				if (wasForeground) return;
+			if (state === "active") {
+				allowed = true;
 				attempt = 0;
 				connect();
 				onResyncRef.current();
 				return;
 			}
+			// keepAlive 的流在后台保持；回来时上面已重连并补快照。
+			if (keepAlive) return;
+			allowed = false;
 			clearTimer();
 			closeSource();
 			setConnected(false);
@@ -159,7 +173,7 @@ export function useControlEvents(
 			closeSource();
 			clearTimer();
 		};
-	}, [baseUrl, token, filterNodeID, filterSessionID, filterLive]);
+	}, [baseUrl, token, filterNodeID, filterSessionID, filterLive, keepAlive]);
 
 	return { connected };
 }
