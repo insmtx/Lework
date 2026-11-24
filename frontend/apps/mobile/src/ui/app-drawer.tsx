@@ -21,7 +21,7 @@ import type { Theme } from "../theme/theme";
 import { useThemedStyles } from "../theme/use-theme";
 import { useAppShell } from "./app-shell-context";
 import { BrandMark } from "./brand";
-import { SessionStatusDot, UnreadDot } from "./session-status-dot";
+import { SessionStatusMark, UnreadDot } from "./session-status-mark";
 import { BellButton } from "./top-bar";
 
 function ProjectGroup({
@@ -62,7 +62,7 @@ function ProjectGroup({
 						]}
 						onPress={() => onOpenSession(row.nodeID, row.session.id)}
 					>
-						<SessionStatusDot state={state} />
+						<SessionStatusMark state={state} color={nodeColorSwatch(nodeColors[row.nodeID])} />
 						<Text style={styles.sessionTitle} numberOfLines={1}>
 							{row.session.title || row.session.id}
 						</Text>

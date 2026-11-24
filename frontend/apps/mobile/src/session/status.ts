@@ -31,7 +31,7 @@ export function statusLabel(state: SessionStatus | null): string {
 }
 
 /**
- * statusGlyph 给状态挑一个图形符号；running 不使用字形，页面改用转圈动画。
+ * statusGlyph 给静态状态挑一个图形符号；running/waiting 改用色块动画。
  *
  * 只有单个符号，避免状态文字挤占标题；完整含义放在无障碍标签里。
  */
