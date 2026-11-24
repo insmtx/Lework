@@ -498,3 +498,43 @@ func TestExecSpawnerStopsRealProcess(t *testing.T) {
 		t.Fatal("Wait() did not return after Stop()")
 	}
 }
+
+// BaseURL 让 agent 指向用户自己启动的共享服务；状态与健康检查必须报告这个
+// 地址，而不是按配置端口拼出来的回环地址。
+func TestEnsureReportsConfiguredBaseURL(t *testing.T) {
+	health := &fakeHealth{}
+	svc := New(health, &fakeSpawner{}, ServiceConfig{
+		Port:    4096,
+		BaseURL: "http://127.0.0.1:49374",
+	})
+
+	status, err := svc.Ensure(context.Background())
+	if err != nil {
+		t.Fatalf("Ensure() error = %v", err)
+	}
+	if status.Mode != modeAttached {
+		t.Fatalf("Ensure().Mode = %q, want %q", status.Mode, modeAttached)
+	}
+	if status.BaseURL != "http://127.0.0.1:49374" {
+		t.Fatalf("Ensure().BaseURL = %q, want the configured shared endpoint", status.BaseURL)
+	}
+}
+
+// attach 模式下服务归用户所有：探测失败只能在原地报错，绝不能补起一个
+// 同库的第二实例。
+func TestEnsureAttachOnlyNeverSpawns(t *testing.T) {
+	health := &fakeHealth{err: errors.New("connection refused")}
+	spawner := &fakeSpawner{health: health, proc: &fakeProcess{}}
+	svc := New(health, spawner, ServiceConfig{
+		Port:       4096,
+		BaseURL:    "http://127.0.0.1:49374",
+		AttachOnly: true,
+	})
+
+	if _, err := svc.Ensure(context.Background()); err == nil {
+		t.Fatal("Ensure() error = nil, want an unavailable-service error")
+	}
+	if spawner.calls != 0 {
+		t.Fatalf("spawner.calls = %d, want 0 in attach-only mode", spawner.calls)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -299,11 +300,12 @@ func newTestAgentRuntime(t *testing.T, port int, password string) *agentRuntime 
 	client := opencode.New("http://127.0.0.1:1", nil)
 	service := supervisor.New(nil, nil, supervisor.ServiceConfig{Port: port})
 	return &agentRuntime{
-		cfg:      cfg,
-		client:   client,
-		service:  service,
-		handler:  handler.New(client, service),
-		password: password,
+		cfg:        cfg,
+		client:     client,
+		service:    service,
+		handler:    handler.New(client, service),
+		password:   password,
+		serviceURL: fmt.Sprintf("http://127.0.0.1:%d", port),
 	}
 }
 

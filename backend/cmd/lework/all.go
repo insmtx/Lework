@@ -50,7 +50,7 @@ func runAll(parent context.Context, opts allOptions) error {
 		return err
 	}
 
-	ar, err := buildAgent(agentCfg)
+	ar, err := buildAgent(parent, agentCfg)
 	if err != nil {
 		// 控制面已经打开存储，构造 agent 失败时必须先把资源还回去。
 		_ = cp.Close()
