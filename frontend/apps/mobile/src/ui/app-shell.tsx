@@ -16,9 +16,6 @@ import { useSidebarSessions } from "../sidebar/use-sidebar-sessions";
 import { AppDrawer } from "./app-drawer";
 import { AppShellContext, type AppShellValue } from "./app-shell-context";
 
-// 首页只露最近几条：它的作用是继续刚才的对话，不是完整列表。
-const HOME_RECENT_LIMIT = 3;
-
 /**
  * AppShell 持有全 App 共享的连接、项目与侧边栏数据。
  *
@@ -99,8 +96,10 @@ export function AppShell({ children }: { children: ReactNode }) {
 		[projects.projects, projects.inbox.project?.key, sidebar.sessions, onlineNodeIDs, sessionState],
 	);
 
+	// 全部会话按活动时间排好，由首页按需分批露出：截断放在这里会让
+	// 「上滑加载更多」没有数据可续。
 	const recentSessions = useMemo(
-		() => sortSessionsByActivity(sidebar.sessions).slice(0, HOME_RECENT_LIMIT),
+		() => sortSessionsByActivity(sidebar.sessions),
 		[sidebar.sessions],
 	);
 

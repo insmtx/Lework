@@ -6,6 +6,7 @@ import {
 	Modal,
 	Platform,
 	Pressable,
+	ScrollView,
 	StyleSheet,
 	Text,
 	TextInput,
@@ -29,6 +30,7 @@ import {
 	resolveSelectionTarget,
 	type TaskSelection,
 } from "../src/projects/model";
+import { isNearBottom } from "../src/session/scroll";
 import type { Theme } from "../src/theme/theme";
 import { useTheme, useThemedStyles } from "../src/theme/use-theme";
 import { useAppShell, useScreenTitle } from "../src/ui/app-shell-context";
@@ -40,6 +42,9 @@ import { DrawerButton } from "../src/ui/top-bar";
 
 // 首页草稿不跟随项目切换：用户还没决定发给谁时，字不能丢。
 const HOME_DRAFT_SCOPE = { projectKey: "home", nodeID: "home" };
+
+// 首页先露 5 条最近会话，主动上滑再续 5 条：一次铺满会把输入框挤出屏幕。
+const HOME_RECENT_PAGE = 5;
 
 // 「我的目录」在项目弹层里的选项键；用前缀避免和真实项目聚合键冲突。
 const INBOX_OPTION_KEY = "__inbox__";
@@ -74,6 +79,9 @@ export default function HomeScreen() {
 	// 草稿固定在「首页」scope：切项目或节点都不该让用户刚打的字消失。
 	const [draft, setDraft] = useState("");
 	const [sending, setSending] = useState(false);
+	// 首页最近会话的露出条数，每次上滑加一页；手势内只加载一次。
+	const [recentLimit, setRecentLimit] = useState(HOME_RECENT_PAGE);
+	const moreLoadedInGesture = useRef(false);
 	// 显式选择只在本次停留有效，不写偏好；失效时由解析函数自动回退。
 	const [selection, setSelection] = useState<TaskSelection | null>(null);
 	const [nodeSheetOpen, setNodeSheetOpen] = useState(false);
@@ -133,6 +141,7 @@ export default function HomeScreen() {
 			}),
 		[recentSessions, projects.projects],
 	);
+	const visibleRecentRows = recentRows.slice(0, recentLimit);
 
 	const canPickTarget = !settingsLoading && Boolean(settings?.sessionToken);
 	const createRoot = activeNode?.workspace_roots?.[0] ?? "";
@@ -365,73 +374,95 @@ export default function HomeScreen() {
 				style={styles.center}
 				behavior={Platform.OS === "ios" ? "padding" : "height"}
 			>
-				<View style={styles.card}>
-					<ComposerBar>
-						<ComposerChip
-							label="电脑"
-							value={nodeLabel}
-							status={activeNode ? (activeNode.connected ? "online" : "offline") : "none"}
-							accentColor={nodeColorSwatch(activeNode?.color) ?? undefined}
-							disabled={!canPickTarget}
-							onPress={() => setNodeSheetOpen(true)}
-						/>
-						<ComposerChip
-							label="项目"
-							value={projectLabel}
-							disabled={!canPickTarget || target.nodeID === null}
-							onPress={() => setProjectSheetOpen(true)}
-						/>
-					</ComposerBar>
-					<TextInput
-						ref={inputRef}
-						style={styles.input}
-						value={draft}
-						onChangeText={changeText}
-						editable={!settingsLoading && disabledReason === undefined}
-						multiline
-						placeholder="现在要做什么？"
-						placeholderTextColor={theme.colors.placeholder}
-						selectionColor={theme.colors.accent}
-						textAlignVertical="top"
-					/>
-					<View style={styles.footer}>
-						<Text style={styles.reason}>{disabledReason ?? "回车换行"}</Text>
-						<Pressable
-							disabled={!canSend}
-							onPress={() => void send()}
-							style={[styles.send, !canSend && styles.sendDisabled]}
-						>
-							{sending ? (
-								<BrandSpinner color={theme.colors.actionText} />
-							) : (
-								<Text style={styles.sendText}>发送</Text>
-							)}
-						</Pressable>
-					</View>
-				</View>
-
-				{recentRows.length > 0 ? (
-					<View style={styles.recent}>
-						<Text style={styles.recentTitle}>最近会话</Text>
-						{recentRows.map(({ key, ref, projectName }) => (
-							<SessionRow
-								key={key}
-								nodeID={ref.nodeID}
-								session={ref.session}
-								nodeName={nodeNameByID[ref.nodeID]}
-								nodeColor={nodeColorByID[ref.nodeID]}
-								projectName={projectName}
-								state={sessionState(ref.nodeID, ref.session.id)}
+				<ScrollView
+					contentContainerStyle={styles.centerContent}
+					keyboardShouldPersistTaps="handled"
+					scrollEventThrottle={16}
+					onScrollBeginDrag={() => {
+						moreLoadedInGesture.current = false;
+					}}
+					onScroll={(event) => {
+						// 一次上滑只续一页：加载后内容仍贴着底部，不能顺着持续滚动全灌进来。
+						if (moreLoadedInGesture.current) return;
+						const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+						const nearBottom = isNearBottom({
+							offsetY: contentOffset.y,
+							contentHeight: contentSize.height,
+							viewportHeight: layoutMeasurement.height,
+						});
+						if (!nearBottom) return;
+						moreLoadedInGesture.current = true;
+						setRecentLimit((limit) => Math.min(limit + HOME_RECENT_PAGE, recentRows.length));
+					}}
+				>
+					<View style={styles.card}>
+						<ComposerBar>
+							<ComposerChip
+								label="电脑"
+								value={nodeLabel}
+								status={activeNode ? (activeNode.connected ? "online" : "offline") : "none"}
+								accentColor={nodeColorSwatch(activeNode?.color) ?? undefined}
+								disabled={!canPickTarget}
+								onPress={() => setNodeSheetOpen(true)}
 							/>
-						))}
+							<ComposerChip
+								label="项目"
+								value={projectLabel}
+								disabled={!canPickTarget || target.nodeID === null}
+								onPress={() => setProjectSheetOpen(true)}
+							/>
+						</ComposerBar>
+						<TextInput
+							ref={inputRef}
+							style={styles.input}
+							value={draft}
+							onChangeText={changeText}
+							editable={!settingsLoading && disabledReason === undefined}
+							multiline
+							placeholder="现在要做什么？"
+							placeholderTextColor={theme.colors.placeholder}
+							selectionColor={theme.colors.accent}
+							textAlignVertical="top"
+						/>
+						<View style={styles.footer}>
+							<Text style={styles.reason}>{disabledReason ?? "回车换行"}</Text>
+							<Pressable
+								disabled={!canSend}
+								onPress={() => void send()}
+								style={[styles.send, !canSend && styles.sendDisabled]}
+							>
+								{sending ? (
+									<BrandSpinner color={theme.colors.actionText} />
+								) : (
+									<Text style={styles.sendText}>发送</Text>
+								)}
+							</Pressable>
+						</View>
 					</View>
-				) : null}
 
-				{!settingsLoading && !settings?.sessionToken ? (
-					<Pressable style={styles.link} onPress={() => router.push("/login")}>
-						<Text style={styles.linkText}>登录以查看电脑</Text>
-					</Pressable>
-				) : null}
+					{recentRows.length > 0 ? (
+						<View style={styles.recent}>
+							<Text style={styles.recentTitle}>最近会话</Text>
+							{visibleRecentRows.map(({ key, ref, projectName }) => (
+								<SessionRow
+									key={key}
+									nodeID={ref.nodeID}
+									session={ref.session}
+									nodeName={nodeNameByID[ref.nodeID]}
+									nodeColor={nodeColorByID[ref.nodeID]}
+									projectName={projectName}
+									state={sessionState(ref.nodeID, ref.session.id)}
+								/>
+							))}
+						</View>
+					) : null}
+
+					{!settingsLoading && !settings?.sessionToken ? (
+						<Pressable style={styles.link} onPress={() => router.push("/login")}>
+							<Text style={styles.linkText}>登录以查看电脑</Text>
+						</Pressable>
+					) : null}
+				</ScrollView>
 			</KeyboardAvoidingView>
 
 			<OptionSheet
@@ -506,7 +537,13 @@ function createStyles(theme: Theme) {
 	return StyleSheet.create({
 		screen: { flex: 1, backgroundColor: colors.background },
 		menu: { position: "absolute", left: 8, zIndex: 1 },
-		center: { flex: 1, justifyContent: "center", paddingHorizontal: 20, paddingVertical: 32 },
+		center: { flex: 1 },
+		centerContent: {
+			flexGrow: 1,
+			justifyContent: "center",
+			paddingHorizontal: 20,
+			paddingVertical: 32,
+		},
 		card: {
 			borderWidth: 1,
 			borderColor: colors.border,
