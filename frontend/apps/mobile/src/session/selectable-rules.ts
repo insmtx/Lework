@@ -1,15 +1,24 @@
-import { cloneElement, isValidElement, type ReactElement } from "react";
+import { cloneElement, isValidElement, type ReactElement, type ReactNode } from "react";
 import { Text } from "react-native";
 import type { RenderFunction, RenderRules } from "react-native-markdown-display";
+
+// selectable 会吞掉 Text 的 onPress，链接所在节点必须保持可点击。
+function hasPressHandler(node: ReactNode): boolean {
+	if (Array.isArray(node)) return node.some(hasPressHandler);
+	if (!isValidElement(node)) return false;
+	const props = node.props as { children?: ReactNode; onPress?: unknown };
+	return typeof props.onPress === "function" || hasPressHandler(props.children);
+}
 
 const wrap =
 	(rule: RenderFunction): RenderFunction =>
 	(node, children, parent, styles, styleObj, ...args) => {
 		const rendered = rule(node, children, parent, styles, styleObj, ...args);
 		// 只有 Text 接受 selectable；给 View 加会触发 RN 属性告警。
-		return isValidElement(rendered) && rendered.type === Text
-			? cloneElement(rendered as ReactElement<{ selectable?: boolean }>, { selectable: true })
-			: rendered;
+		if (!isValidElement(rendered) || rendered.type !== Text || hasPressHandler(rendered)) {
+			return rendered;
+		}
+		return cloneElement(rendered as ReactElement<{ selectable?: boolean }>, { selectable: true });
 	};
 
 /**

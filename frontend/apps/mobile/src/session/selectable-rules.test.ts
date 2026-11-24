@@ -36,4 +36,19 @@ describe("withSelectableText", () => {
 		expect(text.props.selectable).toBe(true);
 		expect(body.props.selectable).toBeUndefined();
 	});
+
+	it("含链接的 Text 不加 selectable，保留点击", () => {
+		const rules = withSelectableText({
+			paragraph: () =>
+				createElement("Text", { style: {} }, [
+					createElement("Text", { key: "link", onPress: vi.fn(), style: {} }, "docs"),
+				]),
+		});
+
+		const paragraph = rules.paragraph!(node, [], [], {}, undefined) as ReactElement<{
+			selectable?: boolean;
+		}>;
+
+		expect(paragraph.props.selectable).toBeUndefined();
+	});
 });

@@ -1,5 +1,6 @@
 "use client";
 
+import { MarkdownRenderer } from "@lework/app-ui/components/common/MarkdownRenderer";
 import { Button } from "@lework/ui/components/ui/button";
 import { Textarea } from "@lework/ui/components/ui/textarea";
 import { cn } from "@lework/ui/lib/utils";
@@ -84,8 +85,11 @@ function MessageTurn({ message }: { message: Message }) {
 				) : null}
 			</div>
 			{message.text ? (
-				<div className="whitespace-pre-wrap rounded-2xl rounded-tl-sm border bg-card px-4 py-3 text-[15px] leading-relaxed shadow-sm md:text-sm">
-					{message.text}
+				<div className="rounded-2xl rounded-tl-sm border bg-card px-4 py-3 text-[15px] leading-relaxed shadow-sm md:text-sm">
+					<MarkdownRenderer
+						content={message.text}
+						className="[&_p:not(:first-child)]:mt-3 [&_p]:my-0"
+					/>
 				</div>
 			) : null}
 			{message.parts?.length ? <ToolCardList parts={message.parts} /> : null}
