@@ -575,9 +575,15 @@ importers:
       '@types/react-dom':
         specifier: 'catalog:'
         version: 19.2.3(@types/react@19.2.17)
+      jsdom:
+        specifier: 'catalog:'
+        version: 29.1.1(@noble/hashes@2.2.0)
       typescript:
         specifier: 'catalog:'
         version: 5.9.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.8(@types/node@25.9.3)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@8.0.16(@types/node@25.9.3)(jiti@2.7.0)(terser@5.51.2)(yaml@2.9.0))
 
   packages/styles:
     dependencies:
@@ -10332,7 +10338,7 @@ snapshots:
   css-tree@3.2.1:
     dependencies:
       mdn-data: 2.27.1
-      source-map-js: 1.2.1
+      source-map-js: 1.2.2
 
   css.escape@1.5.1: {}
 
