@@ -30,3 +30,14 @@ export function isNearBottom(
 export function bottomOffset(contentHeight: number, viewportHeight: number): number {
 	return Math.max(0, contentHeight - viewportHeight);
 }
+
+/**
+ * followOffset 返回为贴底需要滚动到的偏移；已经贴底或内容回缩时返回 null。
+ *
+ * 只向底部追（偏移增大），内容变短交给系统把偏移夹回新的底部。流式期间
+ * 内容高度会因虚拟列表重新测量而小幅上下浮动，如果两个方向都主动滚，
+ * 就会变成持续抖动。
+ */
+export function followOffset(target: number, currentOffset: number): number | null {
+	return target > currentOffset + 0.5 ? target : null;
+}

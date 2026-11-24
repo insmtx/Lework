@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { bottomOffset, isNearBottom } from "./scroll";
+import { bottomOffset, followOffset, isNearBottom } from "./scroll";
 
 describe("isNearBottom", () => {
 	it("停在最底部时算贴底", () => {
@@ -31,5 +31,23 @@ describe("bottomOffset", () => {
 
 	it("空内容不会产生负偏移", () => {
 		expect(bottomOffset(0, 400)).toBe(0);
+	});
+});
+
+describe("followOffset", () => {
+	it("内容变长时追到底部", () => {
+		expect(followOffset(900, 800)).toBe(900);
+	});
+
+	it("已经贴底时不再滚动", () => {
+		expect(followOffset(900, 900)).toBe(null);
+	});
+
+	it("内容回缩时不往回追，交给系统夹取", () => {
+		expect(followOffset(700, 900)).toBe(null);
+	});
+
+	it("亚像素差异不触发滚动", () => {
+		expect(followOffset(900.4, 900)).toBe(null);
 	});
 });
