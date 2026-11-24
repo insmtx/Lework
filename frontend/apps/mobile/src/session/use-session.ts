@@ -258,7 +258,7 @@ export function useSession(
 		// live=1 才收增量事件；session 过滤把这条流收窄到当前会话（节点级事件保留）。
 		// 子代理页在还没找到子会话时 sessionID 为空，此时不能订阅整节点的
 		// live 流：高频增量会白白消耗流量，也没有可归属的会话。
-		{ nodeID, sessionID, live: true },
+		{ filter: { nodeID, sessionID, live: true } },
 	);
 
 	// 跟随暂停期间内容变长时亮「有新内容」；恢复跟随后签名重新对齐。

@@ -2,7 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { Text } from "react-native";
 
 import { createClient } from "../../src/api/client";
-import { registerForPush, unregisterPush } from "../../src/push/register";
+import {
+	ensureNotificationPermission,
+	registerForPush,
+	unregisterPush,
+} from "../../src/push/register";
 import {
 	createSettingsStyles,
 	SettingsPage,
@@ -103,12 +107,17 @@ export default function NotificationsScreen() {
 			<SettingsSection title="声音" hint="只影响这台手机，不会改变控制面的推送内容。">
 				<ToggleRow
 					label="声音提醒"
-					hint="关闭后 App 在前台时静默提醒；后台提示音由系统通知渠道控制。"
+					hint="关闭后仍会显示横幅，只是不响铃。"
 					value={preferences.soundEnabled}
-					onValueChange={(value) => setPreference("soundEnabled", value)}
-					disabled={!notifications}
+					onValueChange={(value) => {
+						if (value) void ensureNotificationPermission();
+						setPreference("soundEnabled", value);
+					}}
 				/>
-				<Text style={styles.hint}>两类提醒各用一个系统通知渠道，可在系统设置里分别关闭声音。</Text>
+				<Text style={styles.hint}>
+					两类提醒各用一个系统通知渠道，可在系统设置里分别关闭声音。后台提醒依赖 App
+					进程存活，建议把 lework 设为「不受电池限制」，否则熄屏久了可能被系统冻结。
+				</Text>
 			</SettingsSection>
 
 			{status ? <Text style={[styles.status, failed && styles.statusFailed]}>{status}</Text> : null}
