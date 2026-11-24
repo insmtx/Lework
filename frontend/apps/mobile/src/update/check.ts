@@ -8,6 +8,8 @@ export type CheckResult =
 
 export type CheckForUpdateOptions = {
 	currentVersion: string;
+	/** 用户跳过过的版本；命中时按无更新处理，手动检查不传（用户主动要看）。 */
+	skippedVersion?: string | null;
 	fetchImpl?: typeof fetch;
 	baseUrl?: string;
 	now?: () => number;
@@ -33,6 +35,10 @@ export async function checkForUpdate(options: CheckForUpdateOptions): Promise<Ch
 
 		const version = parseLatestVersion(await latestResponse.text());
 		if (!isVersionNewer(version, options.currentVersion)) {
+			return { kind: "none" };
+		}
+		// 跳过的版本不再自动提醒，等 LATEST.txt 换成别的版本再提示。
+		if (options.skippedVersion && version === options.skippedVersion) {
 			return { kind: "none" };
 		}
 

@@ -7,9 +7,6 @@ export const UPDATE_CHECK_INTERVAL_MS = 30 * 60 * 1000;
 /** 从后台回到前台时的补查间隔：5 分钟内查过就不再补。 */
 export const UPDATE_RESUME_CHECK_MS = 5 * 60 * 1000;
 
-/** 「稍后」的暂缓时长：5 分钟后重新检查并再次提示。 */
-export const UPDATE_SNOOZE_MS = 5 * 60 * 1000;
-
 /**
  * shouldCheckOnResume 判断回前台时是否补一次检查。
  *

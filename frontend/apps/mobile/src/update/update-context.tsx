@@ -1,5 +1,5 @@
-// UpdateProvider 是应用内升级的唯一编排者：调度检查、自动下载、安装入口与
-// 暂缓提示都汇聚到状态机（state.ts）的 dispatch 上，UI（update-gate）只读状态。
+// UpdateProvider 是应用内升级的唯一编排者：调度检查、用户确认后的下载、安装入口与
+// 跳过记录都汇聚到状态机（state.ts）的 dispatch 上，UI（update-gate）只读状态。
 // 更新源固定为 source.ts 的构建期常量，绝不读取 settings.baseUrl。
 import * as Application from "expo-application";
 import {
@@ -18,7 +18,8 @@ import { type CheckResult, checkForUpdate } from "./check";
 import { downloadPackage, updatePackagePath } from "./download";
 import { extractApkFromZip, extractedApkPath } from "./extract";
 import { installApk } from "./install";
-import { shouldCheckOnResume, UPDATE_CHECK_INTERVAL_MS, UPDATE_SNOOZE_MS } from "./schedule";
+import { shouldCheckOnResume, UPDATE_CHECK_INTERVAL_MS } from "./schedule";
+import { readSkippedVersion, writeSkippedVersion } from "./skip";
 import { MOBILE_APP_ID } from "./source";
 import { reduceUpdateState, type UpdateState } from "./state";
 
@@ -33,8 +34,12 @@ export interface UpdateContextValue {
 	/** 本机版本；非正式 APK（Expo Go / 开发宿主）读不到时为 null。 */
 	currentVersion: string | null;
 	manualCheck: () => void;
+	/** 用户确认后开始下载 available 阶段的版本。 */
+	startUpdate: () => void;
 	install: () => void;
 	dismiss: () => void;
+	/** 拒绝当前版本：持久化跳过，换新版本前不再提示。 */
+	skipVersion: () => void;
 	cancelDownload: () => void;
 	retry: () => void;
 }
@@ -63,10 +68,6 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
 	const lastCheckedAtRef = useRef<number | null>(null);
 	const checkInFlightRef = useRef(false);
 	const downloadRef = useRef<AbortController | null>(null);
-	const snoozeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-	// 「稍后」的暂缓窗口终点：自动检查（定时/补查/首查）在窗口内让路给
-	// snooze 计时器本身，避免提前重新弹窗、把取消变成又一次自动下载。
-	const snoozedUntilRef = useRef<number | null>(null);
 	const progressAtRef = useRef(0);
 
 	const cancelActiveDownload = useCallback((): void => {
@@ -136,11 +137,6 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
 				return;
 			}
 			if (checkInFlightRef.current) return;
-			// 「稍后」的暂缓窗口内不自动重查：提示权交给 snooze 计时器，
-			// 定时与补查不能提前把它变成又一次自动下载。手动检查不受限。
-			if (!manual && snoozedUntilRef.current !== null && Date.now() < snoozedUntilRef.current) {
-				return;
-			}
 			const phase = stateRef.current.phase;
 			// 自动检查只在 idle 时进行：error 停留等用户处理（设计文档「不静默丢弃」），
 			// available / downloading / installing 中途不能被新检查打断。手动检查额外
@@ -154,16 +150,18 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
 			void (async () => {
 				let result: CheckResult;
 				try {
-					result = await checkForUpdate({ currentVersion });
+					// 自动检查避开用户跳过的版本；手动检查是用户主动行为，不受限制。
+					const skippedVersion = manual ? null : await readSkippedVersion();
+					if (!mountedRef.current) return;
+					result = await checkForUpdate({ currentVersion, skippedVersion });
 					if (!mountedRef.current) return;
 					if (result.kind === "update") {
+						// 只提示，不自动下载：等用户点「立即更新」再开始。
 						dispatch({
 							type: "update-available",
 							version: result.version,
 							downloadUrl: result.downloadUrl,
 						});
-						// 发现新版本立即开始后台下载（与桌面端一致），弹窗同步显示进度。
-						startDownload(result.version, result.downloadUrl);
 						return;
 					}
 					if (result.kind === "none") {
@@ -184,10 +182,25 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
 				}
 			})();
 		},
-		[currentVersion, startDownload],
+		[currentVersion],
 	);
 
 	const manualCheck = useCallback((): void => runCheck(true), [runCheck]);
+
+	const startUpdate = useCallback((): void => {
+		const current = stateRef.current;
+		if (current.phase !== "available") return;
+		startDownload(current.version, current.downloadUrl);
+	}, [startDownload]);
+
+	// 跳过只记版本号，不下载；下次自动检查把它当无更新。手动检查不受此限制，
+	// 用户可以反悔。
+	const skipVersion = useCallback((): void => {
+		const current = stateRef.current;
+		if (current.phase !== "available") return;
+		void writeSkippedVersion(current.version);
+		dispatch({ type: "dismissed" });
+	}, []);
 
 	const retry = useCallback((): void => {
 		const current = stateRef.current;
@@ -203,28 +216,12 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
 	const dismiss = useCallback((): void => {
 		cancelActiveDownload();
 		dispatch({ type: "dismissed" });
-		if (snoozeTimerRef.current) clearTimeout(snoozeTimerRef.current);
-		// 「稍后」= 暂缓 5 分钟后重新检查并再次提示；重启 App 会立即再查。
-		// 窗口终点与计时器同时登记：计时器触发时先清窗口再查，
-		// 其余自动检查在窗口内被 runCheck 直接跳过。
-		snoozedUntilRef.current = Date.now() + UPDATE_SNOOZE_MS;
-		snoozeTimerRef.current = setTimeout(() => {
-			snoozeTimerRef.current = null;
-			snoozedUntilRef.current = null;
-			runCheck(false);
-		}, UPDATE_SNOOZE_MS);
-	}, [cancelActiveDownload, runCheck]);
+	}, [cancelActiveDownload]);
 
-	// 「取消下载」与「稍后」语义不同：中止传输、收起提示，但不安排任何
-	// 自动重查（连待触发的 snooze 计时器也取消），直到下一次常规检查时机
-	// （30 分钟定时 / 回前台补查）或用户手动检查才会重新尝试。
+	// 「取消下载」只中止传输并收起提示；跳过的版本才写持久化记录，
+	// 下次常规检查（30 分钟定时 / 回前台补查）或手动检查会重新提示。
 	const cancelDownload = useCallback((): void => {
 		cancelActiveDownload();
-		if (snoozeTimerRef.current) {
-			clearTimeout(snoozeTimerRef.current);
-			snoozeTimerRef.current = null;
-		}
-		snoozedUntilRef.current = null;
 		dispatch({ type: "dismissed" });
 	}, [cancelActiveDownload]);
 
@@ -255,10 +252,6 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
 		return () => {
 			mountedRef.current = false;
 			cancelActiveDownload();
-			if (snoozeTimerRef.current) {
-				clearTimeout(snoozeTimerRef.current);
-				snoozeTimerRef.current = null;
-			}
 		};
 	}, [cancelActiveDownload]);
 
@@ -280,8 +273,28 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
 	}, [currentVersion, runCheck]);
 
 	const value = useMemo<UpdateContextValue>(
-		() => ({ state, currentVersion, manualCheck, install, dismiss, cancelDownload, retry }),
-		[state, currentVersion, manualCheck, install, dismiss, cancelDownload, retry],
+		() => ({
+			state,
+			currentVersion,
+			manualCheck,
+			startUpdate,
+			install,
+			dismiss,
+			skipVersion,
+			cancelDownload,
+			retry,
+		}),
+		[
+			state,
+			currentVersion,
+			manualCheck,
+			startUpdate,
+			install,
+			dismiss,
+			skipVersion,
+			cancelDownload,
+			retry,
+		],
 	);
 
 	return <UpdateContext.Provider value={value}>{children}</UpdateContext.Provider>;

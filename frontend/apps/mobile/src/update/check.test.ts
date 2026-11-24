@@ -47,6 +47,17 @@ describe("checkForUpdate", () => {
 		});
 	});
 
+	it("skips the version the user declined", async () => {
+		const fetchImpl = (async () => response(200, "0.8.0\n")) as typeof fetch;
+		await expect(
+			checkForUpdate({
+				currentVersion: "0.7.0",
+				skippedVersion: "0.8.0",
+				fetchImpl,
+			}),
+		).resolves.toEqual({ kind: "none" });
+	});
+
 	it("returns error on http failure or network rejection", async () => {
 		const http500 = (async () => response(500)) as typeof fetch;
 		await expect(checkForUpdate({ currentVersion: "0.7.0", fetchImpl: http500 })).resolves.toEqual({

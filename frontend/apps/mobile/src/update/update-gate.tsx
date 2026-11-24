@@ -15,6 +15,8 @@ interface GateActions {
 	onCancelDownload: () => void;
 	onInstall: () => void;
 	onRetry: () => void;
+	onStart: () => void;
+	onSkip: () => void;
 }
 
 // 版本号可能带 v 前缀（LATEST.txt 允许 v?x.y.z），统一剥掉后再补，
@@ -24,7 +26,7 @@ function displayVersion(version: string): string {
 }
 
 export function UpdateGate() {
-	const { state, install, dismiss, cancelDownload, retry } = useUpdate();
+	const { state, install, dismiss, startUpdate, skipVersion, cancelDownload, retry } = useUpdate();
 	const styles = useThemedStyles(createUpdateGateStyles);
 
 	if (!isUpdateVisible(state)) return null;
@@ -38,6 +40,8 @@ export function UpdateGate() {
 						onCancelDownload: cancelDownload,
 						onInstall: install,
 						onRetry: retry,
+						onStart: startUpdate,
+						onSkip: skipVersion,
 					})}
 				</View>
 			</View>
@@ -48,23 +52,29 @@ export function UpdateGate() {
 function renderGateBody(state: UpdateState, styles: GateStyles, actions: GateActions) {
 	switch (state.phase) {
 		case "available":
+			// 发现新版本只提问，不自动下载；用户在「立即更新」与「跳过此版本」中选。
+			return (
+				<>
+					<Text style={styles.title}>发现新版本 v{displayVersion(state.version)}</Text>
+					<Text style={styles.detail}>是否现在更新？跳过后该版本不再提示，换新版本会再提醒。</Text>
+					<View style={styles.actions}>
+						<GateButton label="跳过此版本" onPress={actions.onSkip} styles={styles} />
+						<GateButton label="立即更新" onPress={actions.onStart} styles={styles} primary />
+					</View>
+				</>
+			);
 		case "downloading":
 			return (
 				<>
 					<Text style={styles.title}>发现新版本 v{displayVersion(state.version)}</Text>
-					{state.phase === "downloading" ? (
-						<View style={styles.progressWrap}>
-							<View style={styles.progressTrack}>
-								<View style={[styles.progressFill, { width: `${state.progress}%` }]} />
-							</View>
-							<Text style={styles.detail}>正在下载 {state.progress}%</Text>
+					<View style={styles.progressWrap}>
+						<View style={styles.progressTrack}>
+							<View style={[styles.progressFill, { width: `${state.progress}%` }]} />
 						</View>
-					) : (
-						<Text style={styles.detail}>正在准备下载…</Text>
-					)}
+						<Text style={styles.detail}>正在下载 {state.progress}%</Text>
+					</View>
 					<View style={styles.actions}>
-						<GateButton label="稍后" onPress={actions.onDismiss} styles={styles} />
-						{/* 取消下载只中止并收起，不 snooze；稍后则会 5 分钟后重新提示。 */}
+						{/* 取消只中止本次下载，不记跳过：下次常规检查或手动检查会重新询问。 */}
 						<GateButton label="取消下载" onPress={actions.onCancelDownload} styles={styles} />
 					</View>
 				</>

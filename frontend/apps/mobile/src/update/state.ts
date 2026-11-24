@@ -74,7 +74,8 @@ export function reduceUpdateState(state: UpdateState, action: UpdateAction): Upd
 		case "failed":
 			return toError(state, action.message);
 		case "dismissed":
-			// 关闭弹窗回到 idle：downloading 时即为「取消下载」入口，调用方需同时
+			// 关闭弹窗回到 idle：available 时是用户跳过（持久化在 update-context，
+			// 之后同一版本不再提示）；downloading 时是「取消下载」入口，调用方需同时
 			// abort 真实下载任务；installing 由系统安装器接管，此处不可中断。
 			return state.phase === "available" ||
 				state.phase === "downloading" ||
