@@ -8,14 +8,16 @@ import { formatRelativeTime } from "../sidebar/model";
 import type { Theme } from "../theme/theme";
 import { useThemedStyles } from "../theme/use-theme";
 import { useAppShell } from "./app-shell-context";
-import { SessionStatusMark, UnreadDot } from "./session-status-mark";
+import { RowSweep } from "./row-sweep";
+import { UnreadDot } from "./session-status-mark";
 
 /**
  * SessionRow 渲染一条会话；标题缺失时退回 id，保证永远可点。
  *
- * 标题左侧的状态点来自 overview 投影，时间右侧的未读点来自本机水位；两个
- * 轴分开，一行就能回答「在跑吗 / 等我吗 / 有结果没看吗」。
- * 节点颜色做成左侧细条：列表里混着多台电脑时，先按颜色分组，再看状态。
+ * 整行底色来自 overview 投影：在跑/等人批准时光带扫过整行，出错是静态淡红；
+ * 时间右侧的未读点来自本机水位。两个轴分开，一行就能回答「在跑吗 / 等我吗 /
+ * 有结果没看吗」。节点颜色做成左侧细条：列表里混着多台电脑时，先按颜色分组，
+ * 再看状态。
  */
 export function SessionRow({
 	nodeID,
@@ -37,15 +39,11 @@ export function SessionRow({
 
 	return (
 		<Pressable
-			style={[
-				styles.row,
-				{ borderLeftColor: nodeColorSwatch(nodeColor) ?? "transparent" },
-				state === "waiting_permission" && styles.waiting,
-			]}
+			style={[styles.row, { borderLeftColor: nodeColorSwatch(nodeColor) ?? "transparent" }]}
 			onPress={() => router.push(sessionRoute(nodeID, session.id))}
 		>
+			<RowSweep state={state} color={nodeColorSwatch(nodeColor)} />
 			<View style={styles.titleRow}>
-				<SessionStatusMark state={state} color={nodeColorSwatch(nodeColor)} />
 				<Text style={styles.title} numberOfLines={1}>
 					{session.title || session.id}
 				</Text>
@@ -71,12 +69,8 @@ function createStyles(theme: Theme) {
 			borderBottomWidth: 1,
 			borderBottomColor: colors.borderSubtle,
 			gap: 2,
-		},
-		// 等待批准的行轻微高亮：它在抽屉里也被提前，视觉上应当连成一组。
-		waiting: {
-			backgroundColor: colors.warningSurface,
-			borderRadius: 8,
-			paddingHorizontal: 8,
+			// 扫光只铺在行内，不溢到相邻会话。
+			overflow: "hidden",
 		},
 		titleRow: { flexDirection: "row", alignItems: "center", gap: 6 },
 		title: { flex: 1, fontSize: 15, color: colors.text },

@@ -21,7 +21,8 @@ import type { Theme } from "../theme/theme";
 import { useThemedStyles } from "../theme/use-theme";
 import { useAppShell } from "./app-shell-context";
 import { BrandMark } from "./brand";
-import { SessionStatusMark, UnreadDot } from "./session-status-mark";
+import { RowSweep } from "./row-sweep";
+import { UnreadDot } from "./session-status-mark";
 import { BellButton } from "./top-bar";
 
 function ProjectGroup({
@@ -58,11 +59,10 @@ function ProjectGroup({
 						style={[
 							styles.sessionRow,
 							{ borderLeftColor: nodeColorSwatch(nodeColors[row.nodeID]) ?? "transparent" },
-							state === "waiting_permission" && styles.sessionRowWaiting,
 						]}
 						onPress={() => onOpenSession(row.nodeID, row.session.id)}
 					>
-						<SessionStatusMark state={state} color={nodeColorSwatch(nodeColors[row.nodeID])} />
+						<RowSweep state={state} color={nodeColorSwatch(nodeColors[row.nodeID])} />
 						<Text style={styles.sessionTitle} numberOfLines={1}>
 							{row.session.title || row.session.id}
 						</Text>
@@ -320,9 +320,11 @@ function createStyles(theme: Theme) {
 			paddingLeft: 13,
 			paddingRight: 4,
 			paddingVertical: 7,
+			borderRadius: radii.sm,
+			// 扫光只铺在行内，不溢到相邻会话。
+			overflow: "hidden",
 		},
 		sessionTitle: { flex: 1, fontSize: 14, color: colors.textStrong },
-		sessionRowWaiting: { backgroundColor: colors.warningSurface, borderRadius: radii.sm },
 		sessionTime: { fontSize: 11, color: colors.textMuted },
 		moreRow: { paddingLeft: 16, paddingVertical: 6 },
 		moreText: { fontSize: 13, color: colors.accent },

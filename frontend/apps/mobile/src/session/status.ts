@@ -52,6 +52,24 @@ export function statusGlyph(state: SessionStatus | null): string {
 	}
 }
 
+/**
+ * rowSweepKind 决定会话行铺什么背景。
+ *
+ * 运行与等待铺扫光，出错铺静态淡红：会动的底色会被读成“还在跑”。其余状态
+ * 不铺，避免整个列表都在发光。
+ */
+export function rowSweepKind(state: SessionStatus | null): "sweep" | "static" | null {
+	switch (state) {
+		case "running":
+		case "waiting_permission":
+			return "sweep";
+		case "error":
+			return "static";
+		default:
+			return null;
+	}
+}
+
 /** statusTone 给状态配色：完成用成功色，只有需要人动手或出错的才用醒目色。 */
 export function statusTone(state: SessionStatus | null): StatusTone {
 	switch (state) {

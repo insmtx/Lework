@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { statusGlyph, statusLabel, statusTone } from "./status";
+import { rowSweepKind, statusGlyph, statusLabel, statusTone } from "./status";
 
 describe("statusLabel", () => {
 	it("把执行状态翻译成一行文案", () => {
@@ -41,5 +41,16 @@ describe("statusGlyph", () => {
 
 	it("null 不产生符号", () => {
 		expect(statusGlyph(null)).toBe("");
+	});
+});
+
+describe("rowSweepKind", () => {
+	it("运行与等待铺整行扫光，出错用静态底色，其余不铺", () => {
+		expect(rowSweepKind("running")).toBe("sweep");
+		expect(rowSweepKind("waiting_permission")).toBe("sweep");
+		expect(rowSweepKind("error")).toBe("static");
+		expect(rowSweepKind("idle")).toBeNull();
+		expect(rowSweepKind("offline")).toBeNull();
+		expect(rowSweepKind(null)).toBeNull();
 	});
 });
