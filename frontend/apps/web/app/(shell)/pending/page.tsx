@@ -1,10 +1,24 @@
+"use client";
+
+import { PendingView, consoleSessionPath } from "@lework/control-ui";
+import { useRouter } from "next/navigation";
+
 import { ControlPlaneProvider } from "@/components/ControlPlaneProvider";
-import { PendingView } from "@/components/control-plane/pending-view";
+
+function PendingRoute() {
+	const router = useRouter();
+
+	return (
+		<PendingView
+			onOpenSession={(nodeID, sessionID) => router.push(consoleSessionPath(nodeID, sessionID))}
+		/>
+	);
+}
 
 export default function PendingPage() {
 	return (
 		<ControlPlaneProvider>
-			<PendingView />
+			<PendingRoute />
 		</ControlPlaneProvider>
 	);
 }

@@ -1,45 +1,37 @@
 "use client";
 
 import {
-	AutomationExecutionPage,
-	AutomationListView,
-	OrgAdminPage,
-	PayrollAccountingPage,
-	ProjectPage,
-	ProjectsHubView,
-	WorkbenchPage,
-	SkillMarketView,
-	TaskDetailPage,
-	NewTaskPage,
-} from "@lework/app-ui";
+	AutomationDetailRoute,
+	AutomationRoute,
+	EmptyRoute,
+	NewTaskRoute,
+	OrgAdminRoute,
+	type ProjectTab,
+	ProjectRoute,
+	ProjectsHubRoute,
+	SkillDetailRoute,
+	SkillsRoute,
+	TaskDetailRoute,
+	WorkbenchRoute,
+	PayrollRoute,
+	projectPath,
+} from "@lework/control-ui";
 import { useParams, useRouter } from "next/navigation";
 import { useWebNavigation } from "./LeworkShell";
 
-type ProjectTab = "chat" | "tasks" | "files" | "activity";
-
-function projectTabPath(projectId: string, tab: ProjectTab): string {
-	if (tab === "chat") return `/projects/${projectId}`;
-	if (tab === "tasks") return `/projects/${projectId}/tasks`;
-	if (tab === "files") return `/projects/${projectId}/files`;
-	return `/projects/${projectId}/activity`;
-}
+// 这一层只把 Next 的 useParams / useSearchParams 结果映射成共享页面的 props，
+// 页面行为、导航目标全部来自 @lework/control-ui，不再直接 import app-ui 页面。
 
 export function WorkbenchRoutePage() {
-	const navigation = useWebNavigation();
-
-	return <WorkbenchPage navigation={navigation} />;
+	return <WorkbenchRoute navigation={useWebNavigation()} />;
 }
 
 export function NewTaskRoutePage() {
-	const navigation = useWebNavigation();
-
-	return <NewTaskPage navigation={navigation} />;
+	return <NewTaskRoute navigation={useWebNavigation()} />;
 }
 
 export function PayrollAccountingRoutePage() {
-	const navigation = useWebNavigation();
-
-	return <PayrollAccountingPage navigation={navigation} />;
+	return <PayrollRoute navigation={useWebNavigation()} />;
 }
 
 export function ProjectRoutePage({ tab = "chat" }: { tab?: ProjectTab }) {
@@ -49,12 +41,12 @@ export function ProjectRoutePage({ tab = "chat" }: { tab?: ProjectTab }) {
 	const projectId = params.projectId;
 
 	return (
-		<ProjectPage
+		<ProjectRoute
 			projectId={projectId}
 			tab={tab}
 			navigation={navigation}
 			onTabChange={(nextTab) => {
-				router.push(projectTabPath(projectId, nextTab));
+				router.push(projectPath(projectId, nextTab));
 			}}
 		/>
 	);
@@ -65,7 +57,7 @@ export function TaskDetailRoutePage() {
 	const params = useParams<{ projectId: string; taskId: string; sessionId: string }>();
 
 	return (
-		<TaskDetailPage
+		<TaskDetailRoute
 			projectId={params.projectId}
 			taskId={params.taskId}
 			sessionId={params.sessionId}
@@ -79,40 +71,35 @@ export function OrgAdminRoutePage({
 }: {
 	section: "profile" | "departments" | "assistants" | "models";
 }) {
-	const navigation = useWebNavigation();
-
-	return <OrgAdminPage section={section} navigation={navigation} />;
+	return <OrgAdminRoute section={section} navigation={useWebNavigation()} />;
 }
 
 export function SkillsRoutePage() {
-	const navigation = useWebNavigation();
+	return <SkillsRoute navigation={useWebNavigation()} />;
+}
 
-	return <SkillMarketView navigation={navigation} />;
+export function SkillDetailRoutePage() {
+	const navigation = useWebNavigation();
+	const params = useParams<{ skillId: string }>();
+
+	return <SkillDetailRoute skillId={params.skillId} navigation={navigation} />;
 }
 
 export function AutomationRoutePage() {
-	const navigation = useWebNavigation();
-
-	return <AutomationListView navigation={navigation} />;
+	return <AutomationRoute navigation={useWebNavigation()} />;
 }
 
 export function AutomationExecutionRoutePage() {
 	const navigation = useWebNavigation();
 	const params = useParams<{ publicId: string }>();
 
-	return <AutomationExecutionPage automationPublicId={params.publicId} navigation={navigation} />;
+	return <AutomationDetailRoute publicId={params.publicId} navigation={navigation} />;
 }
 
 export function ProjectsHubRoutePage() {
-	const navigation = useWebNavigation();
-
-	return <ProjectsHubView navigation={navigation} />;
+	return <ProjectsHubRoute navigation={useWebNavigation()} />;
 }
 
 export function EmptyRoutePage() {
-	return (
-		<div data-slot="empty-page" className="flex min-h-0 flex-1 flex-col bg-[#f7f8fd]">
-			<header className="z-10 flex h-20 shrink-0 items-center justify-end px-10" />
-		</div>
-	);
+	return <EmptyRoute />;
 }

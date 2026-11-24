@@ -1,5 +1,8 @@
+"use client";
+
+import { NodesView } from "@lework/control-ui";
+
 import { ControlPlaneProvider } from "@/components/ControlPlaneProvider";
-import { NodesView } from "@/components/control-plane/nodes-view";
 
 export default function NodesPage() {
 	return (
