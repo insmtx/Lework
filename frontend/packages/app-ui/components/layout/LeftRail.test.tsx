@@ -2,7 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { LeftRail } from "./LeftRail";
+import { LeftRail, getAppVersion } from "./LeftRail";
 
 const mockAuthenticatedFetch = vi.fn();
 const mockFetchFilePreviewByPublicId = vi.fn();
@@ -161,6 +161,14 @@ describe("LeftRail avatar download", () => {
 		mockClearComposerInput.mockReset();
 		mockSetAuthUser.mockReset();
 		window.localStorage.clear();
+	});
+
+	it("优先读取构建期注入的应用版本并回退 0.0.0", () => {
+		process.env.NEXT_PUBLIC_LEWORK_APP_VERSION = "9.9.9";
+		expect(getAppVersion()).toBe("9.9.9");
+
+		delete process.env.NEXT_PUBLIC_LEWORK_APP_VERSION;
+		expect(getAppVersion()).toBe("0.0.0");
 	});
 
 	it("同一头像地址在父组件重渲染后不会重复下载", async () => {

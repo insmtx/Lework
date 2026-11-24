@@ -31,8 +31,13 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # 用法: make docker-build-web DOCKER_BUILD_ARGS="--build-arg NEXT_PUBLIC_LEWORK_API_BASE_URL=https://api.example.com/v1"
 # 未传入时回退到 .env.local 中的值（避免空 ENV 覆盖 .env.local）
 ARG NEXT_PUBLIC_LEWORK_API_BASE_URL
+# APP_VERSION 由发布 tag 注入，缺省时 next.config 回退到 git describe。
+ARG APP_VERSION
 RUN if [ -n "$NEXT_PUBLIC_LEWORK_API_BASE_URL" ]; then \
       export NEXT_PUBLIC_LEWORK_API_BASE_URL; \
+    fi && \
+    if [ -n "$APP_VERSION" ]; then \
+      export APP_VERSION; \
     fi && \
     pnpm turbo build --filter=@lework/web
 
