@@ -15,7 +15,10 @@ import type {
 	NodeHealth,
 	NodeProject,
 	NodeView,
+	FormAnswerValue,
+	FormField,
 	OverviewNode,
+	PendingForm,
 	PendingPermission,
 	PermissionRequest,
 	PersistentTerminal,
@@ -94,6 +97,27 @@ export interface ApiClient {
 		message?: string,
 	): Promise<unknown>;
 	listPermissions(node: string, session: string): Promise<PermissionRequest[]>;
+	listPendingForms(node: string, session: string): Promise<PendingForm[]>;
+	replyForm(
+		node: string,
+		session: string,
+		formID: string,
+		answer: Record<string, FormAnswerValue>,
+	): Promise<unknown>;
+	cancelForm(node: string, session: string, formID: string, message?: string): Promise<unknown>;
+	listNodeForms(node: string, directory?: string): Promise<PendingForm[]>;
+	replyNodeForm(
+		node: string,
+		formID: string,
+		directory: string,
+		answer: Record<string, FormAnswerValue>,
+	): Promise<unknown>;
+	cancelNodeForm(
+		node: string,
+		formID: string,
+		directory: string,
+		message?: string,
+	): Promise<unknown>;
 	sessionDiff(node: string, session: string, directory: string): Promise<FileDiff[]>;
 	listFiles(node: string, directory: string, path: string): Promise<FileInfo[]>;
 	readFile(node: string, directory: string, path: string): Promise<FileReadResult>;
@@ -381,6 +405,50 @@ export function createApiClient(ctx: RequestContext = {}): ApiClient {
 			}));
 		},
 
+		listPendingForms: async (node, session) => {
+			const forms = await request<WireForm[]>(
+				`/api/sessions/${encodeURIComponent(node)}/${encodeURIComponent(session)}/forms`,
+			);
+			return forms.map((form) => normalizeForm(form, session));
+		},
+
+		replyForm: (node, session, formID, answer) =>
+			request(
+				`/api/sessions/${encodeURIComponent(node)}/${encodeURIComponent(session)}/forms/` +
+					`${encodeURIComponent(formID)}/reply`,
+				{ method: "POST", body: JSON.stringify({ answer }) },
+			),
+
+		cancelForm: (node, session, formID, message) =>
+			request(
+				`/api/sessions/${encodeURIComponent(node)}/${encodeURIComponent(session)}/forms/` +
+					`${encodeURIComponent(formID)}` +
+					query({ message }),
+				{ method: "DELETE" },
+			),
+
+		listNodeForms: async (node, directory) => {
+			const forms = await request<WireForm[]>(
+				`/api/nodes/${encodeURIComponent(node)}/forms${query({ directory })}`,
+			);
+			return forms.map((form) =>
+				normalizeForm(form, form.sessionID ?? "global", directory),
+			);
+		},
+
+		replyNodeForm: (node, formID, directory, answer) =>
+			request(`/api/nodes/${encodeURIComponent(node)}/forms/${encodeURIComponent(formID)}/reply`, {
+				method: "POST",
+				body: JSON.stringify({ directory, answer }),
+			}),
+
+		cancelNodeForm: (node, formID, directory, message) =>
+			request(
+				`/api/nodes/${encodeURIComponent(node)}/forms/${encodeURIComponent(formID)}` +
+					query({ directory, message }),
+				{ method: "DELETE" },
+			),
+
 		registerDevice: (device) =>
 			request<Device>("/api/devices", {
 				method: "POST",
@@ -391,5 +459,21 @@ export function createApiClient(ctx: RequestContext = {}): ApiClient {
 
 		deleteDevice: (id) =>
 			request<unknown>(`/api/devices/${encodeURIComponent(id)}`, { method: "DELETE" }),
+	};
+}
+
+type WireForm = Omit<PendingForm, "session_id" | "fields"> & {
+	sessionID?: string;
+	fields?: FormField[];
+};
+
+function normalizeForm(form: WireForm, sessionID: string, directory?: string): PendingForm {
+	return {
+		id: form.id,
+		session_id: form.sessionID || sessionID,
+		title: form.title || "",
+		metadata: form.metadata,
+		fields: form.fields ?? [],
+		directory: form.directory || directory,
 	};
 }

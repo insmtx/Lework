@@ -417,3 +417,52 @@ describe("认证、认领与移除节点", () => {
 		expect(onUnauthorized).toHaveBeenCalledTimes(1);
 	});
 });
+
+describe("表单客户端", () => {
+	it("listPendingForms 归一化 session_id 与字段数组", async () => {
+		stubFetch(
+			new Response(
+				JSON.stringify([
+					{ id: "frm_1", sessionID: "ses_1", title: "Questions", fields: [{ key: "q0", type: "string" }] },
+				]),
+				{ status: 200 },
+			),
+		);
+		const api = createApiClient({ baseUrl: "https://cp" });
+		const forms = await api.listPendingForms("node/1", "ses 1");
+		expect(fetchMock.mock.calls[0]?.[0]).toBe(
+			"https://cp/api/sessions/node%2F1/ses%201/forms",
+		);
+		expect(forms[0]?.session_id).toBe("ses_1");
+		expect(forms[0]?.fields).toHaveLength(1);
+	});
+
+	it("replyForm 发送 answer", async () => {
+		stubFetch(new Response("null", { status: 200 }));
+		const api = createApiClient({ baseUrl: "https://cp" });
+		await api.replyForm("n1", "s1", "frm 1", { q0: "a", q1: ["a", "b"] });
+		expect(fetchMock.mock.calls[0]?.[0]).toBe("https://cp/api/sessions/n1/s1/forms/frm%201/reply");
+		const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+		expect(JSON.parse(String(init.body))).toEqual({ answer: { q0: "a", q1: ["a", "b"] } });
+	});
+
+	it("listNodeForms 带 directory query", async () => {
+		stubFetch(new Response("[]", { status: 200 }));
+		const api = createApiClient({ baseUrl: "https://cp" });
+		await api.listNodeForms("n1", "/work/foo");
+		expect(fetchMock.mock.calls[0]?.[0]).toBe(
+			"https://cp/api/nodes/n1/forms?directory=%2Fwork%2Ffoo",
+		);
+	});
+
+	it("replyNodeForm 固定提交 global 目录参数", async () => {
+		stubFetch(new Response("null", { status: 200 }));
+		const api = createApiClient({ baseUrl: "https://cp" });
+		await api.replyNodeForm("n1", "frm_1", "/work/foo", { q0: true });
+		const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+		expect(JSON.parse(String(init.body))).toEqual({
+			directory: "/work/foo",
+			answer: { q0: true },
+		});
+	});
+});
