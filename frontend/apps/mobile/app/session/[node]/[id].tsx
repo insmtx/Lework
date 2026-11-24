@@ -272,13 +272,16 @@ export default function SessionScreen() {
 	const userScrolled = useRef(false);
 	const stickToBottom = useRef(true);
 
-	// 从通知带 ?form= 进来时直接看到卡片：阻止首次自动贴底并滚到顶部。
+	// 从通知带 ?form= 进来时停在底部：待处理卡片就在输入框上方，不再把会话拽回顶部。
+	// 用 ref 去重，避免 resync/刷新把已经往上翻历史的人再次拽回底部。
+	const deepFormHandled = useRef<string | null>(null);
 	useEffect(() => {
-		if (!deepForm || loading) return;
-		userScrolled.current = true;
-		stickToBottom.current = false;
-		requestAnimationFrame(() => listRef.current?.scrollToOffset({ offset: 0, animated: false }));
-	}, [deepForm, loading]);
+		if (!deepForm || loading || deepFormHandled.current === deepForm) return;
+		deepFormHandled.current = deepForm;
+		stickToBottom.current = true;
+		setFollowing(true);
+		requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: false }));
+	}, [deepForm, loading, setFollowing]);
 
 	// 已读水位只在「贴底且内容有更新」时推进，并且节流 5s：
 	// 流式文本每几毫秒就变一次，每次都写 keystore 既费电又没必要。
@@ -449,7 +452,7 @@ export default function SessionScreen() {
 						userScrolled.current = true;
 					}}
 					scrollEventThrottle={16}
-					ListHeaderComponent={
+					ListFooterComponent={
 						forms.length + permissions.length > 0 ? (
 							<View style={styles.approvals}>
 								{forms.map((form) => (
@@ -499,7 +502,11 @@ export default function SessionScreen() {
 				<View style={styles.pendingWrap}>
 					<Pressable
 						accessibilityRole="button"
-						onPress={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })}
+						onPress={() => {
+							stickToBottom.current = true;
+							setFollowing(true);
+							scrollToLatest(true);
+						}}
 					>
 						<Text style={styles.pendingBarText}>
 							有待处理 · {forms.length + permissions.length}
