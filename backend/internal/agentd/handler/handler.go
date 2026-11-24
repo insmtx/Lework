@@ -48,6 +48,10 @@ type OpenCodeAPI interface {
 	Messages(ctx context.Context, sessionID string, limit int, cursor string) (opencode.MessagePage, error)
 	ReplyPermission(ctx context.Context, sessionID, permissionID, decision, message string) error
 	ListPermissions(ctx context.Context) ([]opencode.PermissionRequest, error)
+	ListForms(ctx context.Context, sessionID string) ([]opencode.FormInfo, error)
+	ListLocationForms(ctx context.Context, directory string) ([]opencode.FormInfo, error)
+	ReplyForm(ctx context.Context, sessionID, formID, directory string, answer map[string]any) error
+	CancelForm(ctx context.Context, sessionID, formID, directory, message string) error
 
 	SessionDiff(ctx context.Context, sessionID, from, to string, context int) ([]opencode.FileDiff, error)
 	Interrupt(ctx context.Context, sessionID string, resume bool) (opencode.InterruptResult, error)
@@ -125,6 +129,33 @@ type PermissionReplyParams struct {
 // SessionID means every pending request on the node.
 type PermissionListParams struct {
 	SessionID string `json:"session_id,omitempty"`
+}
+
+// FormListParams are the parameters for form.list.
+type FormListParams struct {
+	SessionID string `json:"session_id"`
+}
+
+// FormGlobalListParams are the parameters for form.global_list. An empty
+// Directory enumerates the configured workspace roots and known projects.
+type FormGlobalListParams struct {
+	Directory string `json:"directory,omitempty"`
+}
+
+// FormReplyParams submit one whole form. Directory is only set for global forms.
+type FormReplyParams struct {
+	SessionID string         `json:"session_id"`
+	FormID    string         `json:"form_id"`
+	Directory string         `json:"directory,omitempty"`
+	Answer    map[string]any `json:"answer"`
+}
+
+// FormCancelParams cancel one whole form. Message is optional user feedback.
+type FormCancelParams struct {
+	SessionID string `json:"session_id"`
+	FormID    string `json:"form_id"`
+	Directory string `json:"directory,omitempty"`
+	Message   string `json:"message,omitempty"`
 }
 
 // SessionDiffParams are the parameters for session.diff. Directory is the
@@ -423,6 +454,46 @@ func (h *Handler) Handle(ctx context.Context, method string, params json.RawMess
 		return h.resizePTY(ctx, params)
 	case "pty.close":
 		return h.closePTY(params)
+
+	case "form.list":
+		var p FormListParams
+		if err := decodeParams(method, params, &p); err != nil {
+			return nil, err
+		}
+		if p.SessionID == "" {
+			return nil, errors.New("form.list: session_id is required")
+		}
+		return h.opencode.ListForms(ctx, p.SessionID)
+
+	case "form.global_list":
+		var p FormGlobalListParams
+		if err := decodeParams(method, params, &p); err != nil {
+			return nil, err
+		}
+		return h.listGlobalForms(ctx, p.Directory)
+
+	case "form.reply":
+		var p FormReplyParams
+		if err := decodeParams(method, params, &p); err != nil {
+			return nil, err
+		}
+		if p.SessionID == "" || p.FormID == "" {
+			return nil, errors.New("form.reply: session_id and form_id are required")
+		}
+		if err := validateFormAnswer(p.Answer); err != nil {
+			return nil, err
+		}
+		return nil, h.opencode.ReplyForm(ctx, p.SessionID, p.FormID, p.Directory, p.Answer)
+
+	case "form.cancel":
+		var p FormCancelParams
+		if err := decodeParams(method, params, &p); err != nil {
+			return nil, err
+		}
+		if p.SessionID == "" || p.FormID == "" {
+			return nil, errors.New("form.cancel: session_id and form_id are required")
+		}
+		return nil, h.opencode.CancelForm(ctx, p.SessionID, p.FormID, p.Directory, p.Message)
 
 	case "permission.reply":
 		var p PermissionReplyParams
@@ -981,4 +1052,88 @@ func decodeParams(method string, params json.RawMessage, out any) error {
 		return fmt.Errorf("decode %s params: %w", method, err)
 	}
 	return nil
+}
+
+// validateFormAnswer 只放行 JSON 标量与字符串数组；answer 会原样转给
+// OpenCode，不能让任意嵌套对象穿过协议边界。
+func validateFormAnswer(answer map[string]any) error {
+	if len(answer) == 0 {
+		return errors.New("form.reply: answer is required")
+	}
+	for key, value := range answer {
+		switch typed := value.(type) {
+		case string, bool, float64, json.Number:
+		case []any:
+			for _, item := range typed {
+				if _, ok := item.(string); !ok {
+					return fmt.Errorf("form.reply: answer %q must be a string, boolean, number or string array", key)
+				}
+			}
+		default:
+			return fmt.Errorf("form.reply: answer %q must be a string, boolean, number or string array", key)
+		}
+	}
+	return nil
+}
+
+// listGlobalForms 按目录枚举位置级表单。明确的 directory 先做边界校验；
+// 未指定时枚举 workspace roots 与已知项目目录，单个目录失败只跳过。
+func (h *Handler) listGlobalForms(ctx context.Context, directory string) ([]opencode.FormInfo, error) {
+	if directory != "" {
+		if err := h.confineDirectory(ctx, directory); err != nil {
+			return nil, err
+		}
+		return h.listGlobalFormsIn(ctx, []string{resolvePath(directory)}), nil
+	}
+	return h.listGlobalFormsIn(ctx, h.formDirectories()), nil
+}
+
+func (h *Handler) listGlobalFormsIn(ctx context.Context, directories []string) []opencode.FormInfo {
+	seen := make(map[string]struct{})
+	out := make([]opencode.FormInfo, 0)
+	for _, directory := range directories {
+		forms, err := h.opencode.ListLocationForms(ctx, directory)
+		if err != nil {
+			continue
+		}
+		for _, form := range forms {
+			if form.SessionID != "global" {
+				continue
+			}
+			key := directory + "\x00" + form.ID
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			form.Directory = directory
+			out = append(out, form)
+		}
+	}
+	return out
+}
+
+// formDirectories 返回 workspace roots 与已缓存项目目录的并集。
+func (h *Handler) formDirectories() []string {
+	seen := make(map[string]struct{})
+	out := make([]string, 0, len(h.workspaceRoots))
+	add := func(directory string) {
+		directory = resolvePath(directory)
+		if directory == "" {
+			return
+		}
+		if _, ok := seen[directory]; ok {
+			return
+		}
+		seen[directory] = struct{}{}
+		out = append(out, directory)
+	}
+	for _, root := range h.workspaceRoots {
+		add(root)
+	}
+	h.projectMu.RLock()
+	for directory := range h.projectDirs {
+		add(directory)
+	}
+	h.projectMu.RUnlock()
+	return out
 }

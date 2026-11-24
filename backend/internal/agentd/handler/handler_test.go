@@ -110,6 +110,30 @@ type fakeOpenCode struct {
 	resizeTerminalSize  opencode.TerminalSize
 	closeTerminalCalls  int
 	closeTerminalID     string
+
+	listFormsCalls     int
+	listFormsSessionID string
+	forms              []opencode.FormInfo
+	formsErr           error
+
+	locationFormsCalls     int
+	locationFormsDirectory string
+	locationForms          []opencode.FormInfo
+	locationFormsErr       error
+
+	replyFormCalls     int
+	replyFormSessionID string
+	replyFormID        string
+	replyFormDirectory string
+	replyFormAnswer    map[string]any
+	replyFormErr       error
+
+	cancelFormCalls     int
+	cancelFormSessionID string
+	cancelFormID        string
+	cancelFormDirectory string
+	cancelFormMessage   string
+	cancelFormErr       error
 }
 
 func (f *fakeOpenCode) ListSessions(_ context.Context, directory string) ([]opencode.Session, error) {
@@ -186,6 +210,36 @@ func (f *fakeOpenCode) ReplyPermission(
 	f.replyDecision = decision
 	f.replyMessage = message
 	return nil
+}
+
+func (f *fakeOpenCode) ListForms(_ context.Context, sessionID string) ([]opencode.FormInfo, error) {
+	f.listFormsCalls++
+	f.listFormsSessionID = sessionID
+	return f.forms, f.formsErr
+}
+
+func (f *fakeOpenCode) ListLocationForms(_ context.Context, directory string) ([]opencode.FormInfo, error) {
+	f.locationFormsCalls++
+	f.locationFormsDirectory = directory
+	return f.locationForms, f.locationFormsErr
+}
+
+func (f *fakeOpenCode) ReplyForm(
+	_ context.Context,
+	sessionID, formID, directory string,
+	answer map[string]any,
+) error {
+	f.replyFormCalls++
+	f.replyFormSessionID, f.replyFormID = sessionID, formID
+	f.replyFormDirectory, f.replyFormAnswer = directory, answer
+	return f.replyFormErr
+}
+
+func (f *fakeOpenCode) CancelForm(_ context.Context, sessionID, formID, directory, message string) error {
+	f.cancelFormCalls++
+	f.cancelFormSessionID, f.cancelFormID = sessionID, formID
+	f.cancelFormDirectory, f.cancelFormMessage = directory, message
+	return f.cancelFormErr
 }
 
 func (f *fakeOpenCode) ListPermissions(context.Context) ([]opencode.PermissionRequest, error) {
@@ -1377,5 +1431,148 @@ func TestNodeInfoWorkspaceRootsNeverNil(t *testing.T) {
 	info := result.(NodeInfo)
 	if info.WorkspaceRoots == nil {
 		t.Fatal("workspace roots must serialize as [] rather than null")
+	}
+}
+
+func TestFormListPassesSession(t *testing.T) {
+	oc := &fakeOpenCode{forms: []opencode.FormInfo{{ID: "frm_1", SessionID: "ses_1"}}}
+	h := New(oc, fakeSupervisor{})
+
+	result, err := h.Handle(context.Background(), "form.list",
+		json.RawMessage(`{"session_id":"ses_1"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oc.listFormsCalls != 1 || oc.listFormsSessionID != "ses_1" {
+		t.Fatalf("calls = %#v", oc)
+	}
+	forms, ok := result.([]opencode.FormInfo)
+	if !ok || len(forms) != 1 || forms[0].ID != "frm_1" {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestFormListRequiresSession(t *testing.T) {
+	oc := &fakeOpenCode{}
+	if _, err := New(oc, fakeSupervisor{}).Handle(context.Background(), "form.list", nil); err == nil {
+		t.Fatal("expected error")
+	}
+	if oc.listFormsCalls != 0 {
+		t.Fatalf("calls = %d", oc.listFormsCalls)
+	}
+}
+
+func TestFormGlobalListFilteringAssignsDirectoryAndDedupes(t *testing.T) {
+	oc := &fakeOpenCode{locationForms: []opencode.FormInfo{
+		{ID: "frm_global", SessionID: "global"},
+		{ID: "frm_session", SessionID: "ses_1"},
+	}}
+	h := New(oc, fakeSupervisor{})
+
+	result, err := h.Handle(context.Background(), "form.global_list",
+		json.RawMessage(`{"directory":"/work/foo"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oc.locationFormsDirectory != "/work/foo" {
+		t.Fatalf("directory = %q", oc.locationFormsDirectory)
+	}
+	forms, ok := result.([]opencode.FormInfo)
+	if !ok || len(forms) != 1 || forms[0].ID != "frm_global" {
+		t.Fatalf("result = %#v", result)
+	}
+	if forms[0].Directory != "/work/foo" {
+		t.Fatalf("directory = %q", forms[0].Directory)
+	}
+}
+
+func TestFormGlobalListEnumeratesRootsAndProjects(t *testing.T) {
+	root := t.TempDir()
+	project := t.TempDir()
+	oc := &fakeOpenCode{locationForms: []opencode.FormInfo{{ID: "frm_1", SessionID: "global"}}}
+	h := New(oc, fakeSupervisor{}, WithWorkspaceRoots(root))
+	h.rememberProjects([]opencode.Project{{ID: "p1", Canonical: project}})
+
+	if _, err := h.Handle(context.Background(), "form.global_list", nil); err != nil {
+		t.Fatal(err)
+	}
+	if oc.locationFormsCalls != 2 {
+		t.Fatalf("calls = %d, want 2 (root + project)", oc.locationFormsCalls)
+	}
+}
+
+func TestFormGlobalListSkipsFailingDirectory(t *testing.T) {
+	root := t.TempDir()
+	oc := &fakeOpenCode{locationFormsErr: errors.New("gone")}
+	h := New(oc, fakeSupervisor{}, WithWorkspaceRoots(root))
+
+	result, err := h.Handle(context.Background(), "form.global_list", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	forms, ok := result.([]opencode.FormInfo)
+	if !ok || len(forms) != 0 {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestFormReplyPassesAnswerAndDirectory(t *testing.T) {
+	oc := &fakeOpenCode{}
+	h := New(oc, fakeSupervisor{})
+
+	_, err := h.Handle(context.Background(), "form.reply",
+		json.RawMessage(`{"session_id":"global","form_id":"frm_1","directory":"/work/foo",`+
+			`"answer":{"q0":["a","b"],"q1":true,"q2":2.5}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oc.replyFormSessionID != "global" || oc.replyFormID != "frm_1" ||
+		oc.replyFormDirectory != "/work/foo" {
+		t.Fatalf("args = %#v", oc)
+	}
+	if len(oc.replyFormAnswer) != 3 {
+		t.Fatalf("answer = %#v", oc.replyFormAnswer)
+	}
+}
+
+func TestFormReplyRejectsMalformedAnswer(t *testing.T) {
+	cases := []string{
+		`{}`,
+		`{"q0":{"nested":true}}`,
+		`{"q0":["a",1]}`,
+		`{"q0":null}`,
+	}
+	for _, body := range cases {
+		t.Run(body, func(t *testing.T) {
+			oc := &fakeOpenCode{}
+			raw := `{"session_id":"ses_1","form_id":"frm_1","answer":` + body + `}`
+			if _, err := New(oc, fakeSupervisor{}).Handle(context.Background(), "form.reply",
+				json.RawMessage(raw)); err == nil {
+				t.Fatal("expected error")
+			}
+			if oc.replyFormCalls != 0 {
+				t.Fatalf("calls = %d", oc.replyFormCalls)
+			}
+		})
+	}
+}
+
+func TestFormCancelPassesOptionalMessage(t *testing.T) {
+	oc := &fakeOpenCode{}
+	h := New(oc, fakeSupervisor{})
+
+	if _, err := h.Handle(context.Background(), "form.cancel",
+		json.RawMessage(`{"session_id":"ses_1","form_id":"frm_1"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if oc.cancelFormMessage != "" {
+		t.Fatalf("message = %q", oc.cancelFormMessage)
+	}
+	if _, err := h.Handle(context.Background(), "form.cancel",
+		json.RawMessage(`{"session_id":"ses_1","form_id":"frm_1","message":"skip"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if oc.cancelFormMessage != "skip" {
+		t.Fatalf("message = %q", oc.cancelFormMessage)
 	}
 }

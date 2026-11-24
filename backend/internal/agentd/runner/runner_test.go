@@ -114,6 +114,22 @@ func (stubOpenCode) ListPermissions(context.Context) ([]opencode.PermissionReque
 	return nil, nil
 }
 
+func (stubOpenCode) ListForms(context.Context, string) ([]opencode.FormInfo, error) {
+	return nil, nil
+}
+
+func (stubOpenCode) ListLocationForms(context.Context, string) ([]opencode.FormInfo, error) {
+	return nil, nil
+}
+
+func (stubOpenCode) ReplyForm(context.Context, string, string, string, map[string]any) error {
+	return nil
+}
+
+func (stubOpenCode) CancelForm(context.Context, string, string, string, string) error {
+	return nil
+}
+
 func (stubOpenCode) SessionDiff(context.Context, string, string, string, int) ([]opencode.FileDiff, error) {
 	return nil, nil
 }
