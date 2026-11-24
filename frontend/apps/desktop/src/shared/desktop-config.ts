@@ -10,3 +10,12 @@ export interface DesktopConfig {
 	/** 旧 file:// origin 的 localStorage 是否已经迁移过。 */
 	migratedFromFileOrigin?: boolean;
 }
+
+export const desktopSetApiBaseURLChannel = "lework-desktop:set-api-base-url";
+export const desktopTestServerConnectionChannel = "lework-desktop:test-server-connection";
+
+/** DesktopConfigApi 是渲染层可用的本地源配置能力。 */
+export interface DesktopConfigApi {
+	setApiBaseURL(url: string): Promise<void>;
+	testServerConnection(url: string): Promise<string>;
+}
