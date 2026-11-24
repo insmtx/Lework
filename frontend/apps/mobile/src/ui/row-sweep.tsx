@@ -1,4 +1,5 @@
 import type { SessionState } from "@lework/api";
+import { LinearGradient } from "expo-linear-gradient";
 import { useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, Animated, Easing, StyleSheet, View } from "react-native";
 
@@ -9,19 +10,10 @@ import { useTheme } from "../theme/use-theme";
 const SWEEP_DURATION = 2400;
 
 /** 光带占行宽的比例：太宽像整行变色，太窄又看不出在动。 */
-const BAND_RATIO = 0.6;
+const BAND_RATIO = 0.8;
 
-/** 渐变分段数：12 段在手机上已看不出阶梯，再多只是白耗视图。 */
-const GRADIENT_STOPS = 12;
-
-/** 光带峰值透明度，接近 Web 控制台 30% 的色带浓度。 */
-const PEAK_OPACITY = 0.28;
-
-// 正弦曲线让两端自然淡出：中间最亮，边缘归零，扫过时不会出现硬边。
-const STOP_OPACITIES = Array.from(
-	{ length: GRADIENT_STOPS },
-	(_, index) => PEAK_OPACITY * Math.sin((Math.PI * (index + 0.5)) / GRADIENT_STOPS) ** 2,
-);
+/** 光带峰值透明度，对齐 Web 控制台 30% 的色带浓度。 */
+const PEAK_OPACITY = 0.3;
 
 /**
  * RowSweep 给会话行铺整行状态底色，替代原先行首的小色块。
@@ -91,7 +83,7 @@ function SweepBand({ label, tint }: { label: string; tint: string }) {
 						top: 0,
 						bottom: 0,
 						width: band,
-						flexDirection: "row",
+						opacity: PEAK_OPACITY,
 						// 减少动效时把光带静止在中间，状态仍然看得见。
 						transform: [
 							{
@@ -102,14 +94,14 @@ function SweepBand({ label, tint }: { label: string; tint: string }) {
 						],
 					}}
 				>
-					{/* 每段同色不同透明度，拼成两端淡出的半透明渐变。 */}
-					{STOP_OPACITIES.map((opacity, index) => (
-						<View
-							// biome-ignore lint/suspicious/noArrayIndexKey: 渐变分段固定且无状态
-							key={`stop-${index}`}
-							style={{ flex: 1, backgroundColor: tint, opacity }}
-						/>
-					))}
+					{/* 同色两端全透明：用自己的色值而不是 transparent，避免插值偏黑。 */}
+					<LinearGradient
+						colors={[`${tint}00`, tint, `${tint}00`]}
+						locations={[0, 0.5, 1]}
+						start={{ x: 0, y: 0.5 }}
+						end={{ x: 1, y: 0.5 }}
+						style={StyleSheet.absoluteFill}
+					/>
 				</Animated.View>
 			) : null}
 		</View>
