@@ -115,7 +115,7 @@ opencode serve（每节点一个共享 server，按 Location 装载项目）
 
 - `session.prompt` 的幂等键由 agent 持有，**不会**透传给 OpenCode。同一 `session_id + idempotency_key` 的成功回执会重放；失败不缓存，允许重试。
 - `file.read` 单次上限 512 KiB（agent 与浏览器 API 双重限制），二进制自动转 base64。
-- `workspace_roots` 非空时，`session.create`、`file.*`、`session.diff`、`pty.create` 全部做绝对路径 + 符号链接解析后的边界校验。
+- `workspace_roots` 非空时，`session.create`、`file.*`、`session.diff`、`pty.create` 全部做绝对路径 + 符号链接解析后的边界校验；该节点 OpenCode 已有的项目目录同样放行。
 - PTY 绑定 Session 与目录，不提供任意路径的通用终端。
 
 ### 2.4 已实现的浏览器 API
@@ -217,7 +217,7 @@ Content-Type: application/json
 { "node_id": "nd_x", "directory": "/home/me/projects/app" }
 ```
 
-控制面校验目录是绝对路径，转发给节点，节点再校验 `workspace_roots`，最后调用 OpenCode。返回的是 OpenCode `Session.Info` 原样投影。
+控制面校验目录是绝对路径，转发给节点，节点再校验 `workspace_roots`（或该节点 OpenCode 已有项目）后，最后调用 OpenCode。返回的是 OpenCode `Session.Info` 原样投影。
 
 控制面**不持久化 Session**。页面刷新后靠 `session.list` 重新拉取；Session 的标题、Agent、模型、成本、token、归档状态都以 OpenCode 返回为准。
 
@@ -411,7 +411,7 @@ OpenCode 的 `snapshots` 依赖 Git，只覆盖 Session 的活动目录。控制
 - 输入单帧 64 KiB；
 - 输出单事件 1 MiB；
 - 终端尺寸 1–1000；
-- 目录必须在 `workspace_roots` 内；
+- 目录必须在 `workspace_roots` 内，或属于该节点 OpenCode 已有的项目；
 - 浏览器断开时控制面会尽力关闭远端 PTY；
 - agent 连接结束时关闭所有 PTY，避免遗留 shell 进程。
 

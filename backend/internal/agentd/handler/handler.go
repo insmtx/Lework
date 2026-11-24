@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/insmtx/lework/backend/internal/agentd/opencode"
@@ -214,9 +215,9 @@ type NodeInfo struct {
 	OS           string `json:"os"`
 	Arch         string `json:"arch"`
 	AgentVersion string `json:"agent_version"`
-	// WorkspaceRoots are the absolute directories this agent may serve. The
-	// browser needs them to offer a valid default project directory, because
-	// session.create rejects anything outside them.
+	// WorkspaceRoots are the absolute directories this agent offers as the
+	// default workspace. Directories of existing OpenCode projects are also
+	// accepted, so a user can pick a project that lives outside these roots.
 	WorkspaceRoots []string `json:"workspace_roots"`
 }
 
@@ -236,14 +237,20 @@ type Handler struct {
 	// Roots come from config.Config.WorkspaceRoots, which Validate already
 	// required to be absolute.
 	workspaceRoots []string
+	// projectDirs caches the directories OpenCode already serves. A user may
+	// explicitly target one of those projects, so they are valid session roots
+	// even when they sit outside workspaceRoots.
+	projectMu   sync.RWMutex
+	projectDirs map[string]struct{}
 }
 
 // Option customizes a Handler. It exists so workspace confinement could be
 // added without changing the two-argument New signature every caller uses.
 type Option func(*Handler)
 
-// WithWorkspaceRoots confines session.create to the supplied directories. An
-// empty list preserves the previous pass-through behavior.
+// WithWorkspaceRoots sets the directories the agent offers by default. Existing
+// OpenCode projects are still accepted as session roots. An empty list
+// preserves the previous pass-through behavior.
 func WithWorkspaceRoots(roots ...string) Option {
 	return func(h *Handler) {
 		h.workspaceRoots = append([]string(nil), roots...)
@@ -296,7 +303,12 @@ func (h *Handler) Handle(ctx context.Context, method string, params json.RawMess
 		return nil, h.supervisor.Stop(ctx)
 
 	case "project.list":
-		return h.opencode.ListProjects(ctx)
+		projects, err := h.opencode.ListProjects(ctx)
+		if err != nil {
+			return nil, err
+		}
+		h.rememberProjects(projects)
+		return projects, nil
 
 	case "project.create":
 		var p ProjectCreateParams
@@ -311,7 +323,7 @@ func (h *Handler) Handle(ctx context.Context, method string, params json.RawMess
 			return nil, err
 		}
 		if p.Directory != "" {
-			if err := h.confineDirectory(p.Directory); err != nil {
+			if err := h.confineDirectory(ctx, p.Directory); err != nil {
 				return nil, err
 			}
 		}
@@ -327,7 +339,7 @@ func (h *Handler) Handle(ctx context.Context, method string, params json.RawMess
 			return nil, errors.New("session.children: session_id is required")
 		}
 		if p.Directory != "" {
-			if err := h.confineDirectory(p.Directory); err != nil {
+			if err := h.confineDirectory(ctx, p.Directory); err != nil {
 				return nil, err
 			}
 		}
@@ -338,7 +350,7 @@ func (h *Handler) Handle(ctx context.Context, method string, params json.RawMess
 		if err := decodeParams(method, params, &p); err != nil {
 			return nil, err
 		}
-		if err := h.confineDirectory(p.Directory); err != nil {
+		if err := h.confineDirectory(ctx, p.Directory); err != nil {
 			return nil, err
 		}
 		return h.opencode.CreateSession(ctx, p.Directory)
@@ -502,7 +514,7 @@ func (h *Handler) sessionDiff(ctx context.Context, params json.RawMessage) (any,
 	if p.Directory == "" {
 		return nil, errors.New("session.diff: directory is required")
 	}
-	if err := h.confineDirectory(p.Directory); err != nil {
+	if err := h.confineDirectory(ctx, p.Directory); err != nil {
 		return nil, err
 	}
 	return h.opencode.SessionDiff(ctx, p.SessionID, p.From, p.To, p.Context)
@@ -517,14 +529,14 @@ func (h *Handler) listFiles(ctx context.Context, params json.RawMessage) (any, e
 	if p.Directory == "" {
 		return nil, errors.New("file.list: directory is required")
 	}
-	if err := h.confineDirectory(p.Directory); err != nil {
+	if err := h.confineDirectory(ctx, p.Directory); err != nil {
 		return nil, err
 	}
 	root, err := filepath.Abs(p.Directory)
 	if err != nil {
 		return nil, fmt.Errorf("file.list: resolve directory: %w", err)
 	}
-	target, err := h.confinePath(root, p.Path)
+	target, err := h.confinePath(ctx, root, p.Path)
 	if err != nil {
 		return nil, err
 	}
@@ -548,7 +560,7 @@ func (h *Handler) readFile(ctx context.Context, params json.RawMessage) (any, er
 	if p.Directory == "" {
 		return nil, errors.New("file.read: directory is required")
 	}
-	if err := h.confineDirectory(p.Directory); err != nil {
+	if err := h.confineDirectory(ctx, p.Directory); err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(p.Path) == "" {
@@ -559,7 +571,7 @@ func (h *Handler) readFile(ctx context.Context, params json.RawMessage) (any, er
 	if err != nil {
 		return nil, fmt.Errorf("file.read: resolve directory: %w", err)
 	}
-	target, err := h.confinePath(root, p.Path)
+	target, err := h.confinePath(ctx, root, p.Path)
 	if err != nil {
 		return nil, err
 	}
@@ -607,7 +619,7 @@ func (h *Handler) createPTY(ctx context.Context, params json.RawMessage) (any, e
 	if p.Directory == "" {
 		return nil, errors.New("pty.create: directory is required")
 	}
-	if err := h.confineDirectory(p.Directory); err != nil {
+	if err := h.confineDirectory(ctx, p.Directory); err != nil {
 		return nil, err
 	}
 	cwd, err := filepath.Abs(p.Directory)
@@ -798,23 +810,24 @@ func validateProjectName(name string) error {
 	return nil
 }
 
-// confineDirectory enforces workspace_roots on a directory. It returns no
-// error when no roots are configured, preserving the I0 pass-through behavior.
-func (h *Handler) confineDirectory(directory string) error {
+// confineDirectory enforces the directory boundary. It returns no error when no
+// roots are configured, preserving the I0 pass-through behavior.
+func (h *Handler) confineDirectory(ctx context.Context, directory string) error {
 	if len(h.workspaceRoots) == 0 {
 		return nil
 	}
 	if directory == "" {
 		return errors.New("directory is required when workspace_roots is configured")
 	}
-	_, err := h.resolveWorkspaceDirectory(directory)
+	_, err := h.resolveWorkspaceDirectory(ctx, directory)
 	return err
 }
 
 // resolveWorkspaceDirectory resolves directory and verifies it is inside one
-// configured root. Symlinks are compared after EvalSymlinks so a link inside a
-// root cannot redirect a file or PTY operation outside it.
-func (h *Handler) resolveWorkspaceDirectory(directory string) (string, error) {
+// configured root or is an existing OpenCode project. Symlinks are compared
+// after EvalSymlinks so a link inside a root cannot redirect a file or PTY
+// operation outside it.
+func (h *Handler) resolveWorkspaceDirectory(ctx context.Context, directory string) (string, error) {
 	abs, err := filepath.Abs(directory)
 	if err != nil {
 		return "", fmt.Errorf("resolve directory: %w", err)
@@ -822,37 +835,79 @@ func (h *Handler) resolveWorkspaceDirectory(directory string) (string, error) {
 	if len(h.workspaceRoots) == 0 {
 		return abs, nil
 	}
-
-	resolvedTarget := abs
-	if evaluated, evalErr := filepath.EvalSymlinks(abs); evalErr == nil {
-		resolvedTarget = evaluated
+	if h.insideWorkspaceRoot(abs) || h.knownProjectDir(abs) {
+		return abs, nil
 	}
 
-	for _, root := range h.workspaceRoots {
-		absRoot, err := filepath.Abs(root)
-		if err != nil {
-			continue
-		}
-		resolvedRoot := absRoot
-		if evaluated, evalErr := filepath.EvalSymlinks(absRoot); evalErr == nil {
-			resolvedRoot = evaluated
-		}
-		if pathWithin(resolvedRoot, resolvedTarget) {
+	// The cache may predate this project (e.g. it was created after the last
+	// project.list), so refresh once before rejecting an explicit selection.
+	if projects, listErr := h.opencode.ListProjects(ctx); listErr == nil {
+		h.rememberProjects(projects)
+		if h.knownProjectDir(abs) {
 			return abs, nil
 		}
 	}
 	return "", errors.New("directory is outside workspace_roots")
 }
 
+// insideWorkspaceRoot reports whether abs is one of the configured roots or a
+// descendant of one.
+func (h *Handler) insideWorkspaceRoot(abs string) bool {
+	resolvedTarget := resolvePath(abs)
+	for _, root := range h.workspaceRoots {
+		if pathWithin(resolvePath(root), resolvedTarget) {
+			return true
+		}
+	}
+	return false
+}
+
+// rememberProjects refreshes the directories OpenCode already serves. Only the
+// exact project root is allowed, so a project never widens access to its parent.
+func (h *Handler) rememberProjects(projects []opencode.Project) {
+	dirs := make(map[string]struct{}, len(projects))
+	for _, project := range projects {
+		if project.Canonical == "" {
+			continue
+		}
+		dirs[resolvePath(project.Canonical)] = struct{}{}
+	}
+	h.projectMu.Lock()
+	h.projectDirs = dirs
+	h.projectMu.Unlock()
+}
+
+// knownProjectDir reports whether abs is one of the cached OpenCode projects.
+func (h *Handler) knownProjectDir(abs string) bool {
+	resolved := resolvePath(abs)
+	h.projectMu.RLock()
+	_, ok := h.projectDirs[resolved]
+	h.projectMu.RUnlock()
+	return ok
+}
+
+// resolvePath returns an absolute, symlink-resolved path. It falls back to the
+// lexical value when the path does not exist yet.
+func resolvePath(path string) string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return path
+	}
+	if evaluated, evalErr := filepath.EvalSymlinks(abs); evalErr == nil {
+		return evaluated
+	}
+	return abs
+}
+
 // confinePath resolves path relative to root and rejects lexical escapes and
 // symlinks whose target resolves outside root.
-func (h *Handler) confinePath(root, path string) (string, error) {
+func (h *Handler) confinePath(ctx context.Context, root, path string) (string, error) {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
 		return "", fmt.Errorf("resolve root: %w", err)
 	}
 	if len(h.workspaceRoots) > 0 {
-		if _, err := h.resolveWorkspaceDirectory(absRoot); err != nil {
+		if _, err := h.resolveWorkspaceDirectory(ctx, absRoot); err != nil {
 			return "", err
 		}
 	}

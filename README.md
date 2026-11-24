@@ -179,7 +179,7 @@ opencode:
 ./bundles/lework agent --config /etc/lework/agent.yaml
 ```
 
-`workspace_roots` 限制可创建 Session 和读取文件的目录。完整协议与排障见 [控制面运维](docs/operations/control-plane.md)。
+`workspace_roots` 限制可创建 Session 和读取文件的目录；该节点 OpenCode 里已存在的项目目录也允许（用户可在客户端显式选择）。完整协议与排障见 [控制面运维](docs/operations/control-plane.md)。
 
 ## 开发指南
 
