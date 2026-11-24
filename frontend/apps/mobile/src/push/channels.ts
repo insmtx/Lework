@@ -5,14 +5,19 @@ import { APPROVAL_SOUND, COMPLETION_SOUND } from "./sounds";
 //
 // ID 带版本后缀：Android 会「复活」同 ID 的已删除渠道并保留旧设置，因此
 // 改声音只能换新 ID，不能删除后重建。
-export const ANDROID_CHANNEL_ID = "permissions-v2";
+export const ANDROID_CHANNEL_ID = "permissions-v3";
 
-// 执行结果走独立渠道：审批需要打断用户（HIGH + 震动），完成/失败只需要
+// 执行结果走独立渠道：审批需要打断用户（HIGH + 急促震动），完成/失败只需要
 // 一条横幅。两件事混在一个渠道里，用户没法只关掉其中一个。
-export const ANDROID_CHANNEL_ID_COMPLETIONS = "completions-v2";
+export const ANDROID_CHANNEL_ID_COMPLETIONS = "completions-v3";
 
-/** LEGACY_CHANNEL_IDS 是上一版渠道，启动时清掉，避免系统设置里出现重复条目。 */
-export const LEGACY_CHANNEL_IDS = ["permissions", "completions"] as const;
+/** LEGACY_CHANNEL_IDS 是旧版本渠道，启动时清掉，避免系统设置里出现重复条目。 */
+export const LEGACY_CHANNEL_IDS = [
+	"permissions",
+	"completions",
+	"permissions-v2",
+	"completions-v2",
+] as const;
 
 /**
  * ChannelImportance 用语义值描述渠道的打断程度。
@@ -29,6 +34,8 @@ export interface AndroidChannel {
 	importance: ChannelImportance;
 	sound: string;
 	enableVibrate: boolean;
+	/** vibrationPattern 按 Android 约定排列：[静默, 震动, 静默, 震动, …] 毫秒。 */
+	vibrationPattern: number[];
 }
 
 /**
@@ -46,6 +53,8 @@ export function androidChannels(): AndroidChannel[] {
 			importance: "high",
 			sound: APPROVAL_SOUND,
 			enableVibrate: true,
+			// 两段急促震动：声音被静音时也能感到有人在等审批。
+			vibrationPattern: [0, 250, 150, 250],
 		},
 		{
 			id: ANDROID_CHANNEL_ID_COMPLETIONS,
@@ -54,7 +63,9 @@ export function androidChannels(): AndroidChannel[] {
 			description: "会话执行完成或失败时播放完成提示音",
 			importance: "default",
 			sound: COMPLETION_SOUND,
-			enableVibrate: false,
+			enableVibrate: true,
+			// 单段轻震：知道跑完了，但不至于像审批那样催人。
+			vibrationPattern: [0, 150],
 		},
 	];
 }

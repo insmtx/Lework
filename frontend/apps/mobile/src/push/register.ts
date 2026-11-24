@@ -56,6 +56,7 @@ export async function ensureAndroidChannels(): Promise<void> {
 			lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
 			sound: channel.sound,
 			enableVibrate: channel.enableVibrate,
+			vibrationPattern: channel.vibrationPattern,
 		});
 	}
 }

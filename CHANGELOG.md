@@ -4,8 +4,9 @@
 
 ### 移动端推送提示音
 
-- 审批请求与执行完成改走不同 Android 通知渠道（`permissions-v2` / `completions-v2`），分别播放 `approval.wav` 与 `done.wav`
-- 改提示音必须换渠道 ID：Android 会复活同名已删渠道并保留旧声音；旧 ID 启动时清理
+- 审批请求与执行完成改走不同 Android 通知渠道（`permissions-v3` / `completions-v3`），分别播放 `approval.wav` 与 `done.wav`
+- 两类提醒都带震动：审批两段急促（250/150/250ms），完成单段轻震（150ms）
+- 改提示音或震动必须换渠道 ID：Android 会复活同名已删渠道并保留旧设置；旧 ID 启动时清理
 - 应用内「声音提醒」只控制前台是否响铃，后台提示音由系统渠道设置决定
 
 ### 单节点 OpenCode 控制面浏览器工作流
