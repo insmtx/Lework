@@ -33,7 +33,7 @@ export function ReasoningCard({ message, mode }: { message: Message; mode: "brie
 				<Text style={styles.reasoningChevron}>{expanded ? "▾" : "▸"}</Text>
 				<Text style={styles.reasoningLabel}>思考过程</Text>
 			</Pressable>
-			<Text style={styles.reasoningBody} numberOfLines={expanded ? undefined : 2}>
+			<Text selectable style={styles.reasoningBody} numberOfLines={expanded ? undefined : 2}>
 				{expanded ? text : preview}
 			</Text>
 		</View>
@@ -67,7 +67,9 @@ export function MessageRow({
 	if (message.role === "idle") {
 		return (
 			<View style={styles.noticeRow}>
-				<Text style={styles.noticeError}>{message.error?.message ?? "本轮执行失败"}</Text>
+				<Text selectable style={styles.noticeError}>
+					{message.error?.message ?? "本轮执行失败"}
+				</Text>
 			</View>
 		);
 	}
@@ -87,7 +89,9 @@ export function MessageRow({
 					{markdown ? (
 						<MarkdownBody content={text} scheme={theme.scheme} />
 					) : (
-						<Text style={[styles.messageText, isUser && styles.userMessageText]}>{text}</Text>
+						<Text selectable style={[styles.messageText, isUser && styles.userMessageText]}>
+							{text}
+						</Text>
 					)}
 				</View>
 			) : null}
@@ -111,7 +115,11 @@ export function MessageRow({
 					))}
 				</View>
 			) : null}
-			{message.error ? <Text style={styles.turnError}>{message.error.message}</Text> : null}
+			{message.error ? (
+				<Text selectable style={styles.turnError}>
+					{message.error.message}
+				</Text>
+			) : null}
 		</View>
 	);
 }

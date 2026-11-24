@@ -1,9 +1,13 @@
 import { memo } from "react";
 import { StyleSheet } from "react-native";
-import Markdown from "react-native-markdown-display";
+import Markdown, { renderRules } from "react-native-markdown-display";
 
 import { type ColorScheme, darkTheme, lightTheme, type Theme } from "../theme/theme";
 import { useFontScale } from "../theme/use-theme";
+import { withSelectableText } from "./selectable-rules";
+
+// 长按选中复制：正文里的文本节点都来自默认规则，统一补 selectable。
+const selectableRules = withSelectableText(renderRules);
 
 /**
  * createMarkdownStyles 把主题色板映射成 Markdown 样式。
@@ -142,5 +146,9 @@ export const MarkdownBody = memo(function MarkdownBody({
 	scheme: ColorScheme;
 }) {
 	const scale = useFontScale();
-	return <Markdown style={markdownStyles(scheme, scale)}>{content}</Markdown>;
+	return (
+		<Markdown style={markdownStyles(scheme, scale)} rules={selectableRules}>
+			{content}
+		</Markdown>
+	);
 });
