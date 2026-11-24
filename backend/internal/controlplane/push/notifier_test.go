@@ -529,3 +529,82 @@ func TestRunExitsOnCancelWhileSending(t *testing.T) {
 	}
 	close(sender.release)
 }
+
+func formCreated(node, session, formID string, global bool) event.Event {
+	data, _ := json.Marshal(map[string]any{
+		"form": map[string]any{
+			"id":        formID,
+			"sessionID": session,
+			"title":     "Questions",
+			"metadata":  map[string]any{"kind": "question"},
+			"fields": []map[string]any{
+				{"key": "q0", "type": "string", "title": "选哪个方案？"},
+			},
+		},
+	})
+	_ = global
+	return event.Event{NodeID: node, SessionID: session, Type: "form.created", Data: data, Time: time.Now()}
+}
+
+func TestNotifierPushesFormCreated(t *testing.T) {
+	sender := &fakeSender{}
+	n := NewNotifier(fakeDevices{devices: []store.Device{{PushToken: "ExponentPushToken[1]"}}}, sender, nil)
+	n.Handle(context.Background(), formCreated("node_1", "ses_1", "frm_1", false))
+
+	msg := sender.firstBatch()
+	if len(msg) != 1 {
+		t.Fatalf("messages = %#v", msg)
+	}
+	if !strings.HasPrefix(msg[0].Title, "需要回答 · ") || !strings.Contains(msg[0].Title, "node_1") {
+		t.Fatalf("title = %q", msg[0].Title)
+	}
+	if msg[0].Body != "选哪个方案？" {
+		t.Fatalf("body = %q", msg[0].Body)
+	}
+	if msg[0].Tag != "node_1/form/frm_1" {
+		t.Fatalf("tag = %q", msg[0].Tag)
+	}
+	if msg[0].Data["form_id"] != "frm_1" || msg[0].Data["kind"] != "question" {
+		t.Fatalf("data = %#v", msg[0].Data)
+	}
+}
+
+func TestNotifierGlobalFormUsesGlobalTitleAndData(t *testing.T) {
+	sender := &fakeSender{}
+	n := NewNotifier(fakeDevices{devices: []store.Device{{PushToken: "t"}}}, sender, nil)
+	n.Handle(context.Background(), formCreated("node_1", "global", "frm_2", true))
+
+	msg := sender.firstBatch()
+	if len(msg) != 1 || msg[0].Title != "需要回答 · 全局表单" {
+		t.Fatalf("messages = %#v", msg)
+	}
+	if msg[0].Data["global"] != "true" || msg[0].Data["session"] != "global" {
+		t.Fatalf("data = %#v", msg[0].Data)
+	}
+	if msg[0].Tag != "node_1/form/frm_2" {
+		t.Fatalf("tag = %q", msg[0].Tag)
+	}
+}
+
+func TestNotifierDedupesSameForm(t *testing.T) {
+	sender := &fakeSender{}
+	n := NewNotifier(fakeDevices{devices: []store.Device{{PushToken: "t"}}}, sender, nil)
+	ev := formCreated("node_1", "ses_1", "frm_1", false)
+	n.Handle(context.Background(), ev)
+	n.Handle(context.Background(), ev)
+	if sender.count() != 1 {
+		t.Fatalf("batches = %d", sender.count())
+	}
+}
+
+func TestNotifierIgnoresFormReplied(t *testing.T) {
+	sender := &fakeSender{}
+	n := NewNotifier(fakeDevices{devices: []store.Device{{PushToken: "t"}}}, sender, nil)
+	data, _ := json.Marshal(map[string]string{"id": "frm_1", "sessionID": "ses_1"})
+	n.Handle(context.Background(), event.Event{
+		NodeID: "node_1", SessionID: "ses_1", Type: "form.replied", Data: data, Time: time.Now(),
+	})
+	if sender.count() != 0 {
+		t.Fatalf("batches = %d", sender.count())
+	}
+}
