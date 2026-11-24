@@ -12,6 +12,7 @@
 	},
 	"dependencies": {
 		"@lework/api": "workspace:*",
+		"@lework/app-ui": "workspace:*",
 		"@lework/tool-view": "workspace:*",
 		"@lework/ui": "workspace:*",
 		"@xterm/addon-fit": "^0.11.0",

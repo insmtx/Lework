@@ -483,6 +483,9 @@ importers:
       '@lework/api':
         specifier: workspace:*
         version: link:../api
+      '@lework/app-ui':
+        specifier: workspace:*
+        version: link:../app-ui
       '@lework/tool-view':
         specifier: workspace:*
         version: link:../tool-view
