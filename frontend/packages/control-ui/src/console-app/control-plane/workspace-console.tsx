@@ -1,9 +1,10 @@
 "use client";
 
-import { ControlConsole, type ProjectSummary, useControlApi } from "@lework/control-ui";
+import { ControlConsole } from "../../console";
+import type { ProjectSummary } from "../../types";
+import { useControlApi } from "../../context";
 import { Button } from "@lework/ui/components/ui/button";
 import { CloudOff, Loader2 } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 /**
@@ -15,11 +16,12 @@ import { useCallback, useEffect, useState } from "react";
 export function WorkspaceConsole({
 	projectKey,
 	initialSessionID,
+	onBack,
 }: {
 	projectKey: string;
 	initialSessionID?: string | null;
+	onBack: () => void;
 }) {
-	const router = useRouter();
 	const { client } = useControlApi();
 	const [project, setProject] = useState<ProjectSummary | null>(null);
 	const [loading, setLoading] = useState(true);
@@ -55,7 +57,7 @@ export function WorkspaceConsole({
 			<div className="flex h-full flex-col items-center justify-center gap-3 bg-[var(--lework-app-bg)] p-6 text-center">
 				<CloudOff className="size-8 text-[var(--lework-text-subtle)]" />
 				<p className="text-sm text-[var(--lework-text-muted)]">{error ?? "工作区不存在"}</p>
-				<Button variant="outline" onClick={() => router.push("/workspaces")}>
+				<Button variant="outline" onClick={onBack}>
 					返回工作区列表
 				</Button>
 			</div>

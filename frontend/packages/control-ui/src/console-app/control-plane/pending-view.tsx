@@ -1,6 +1,8 @@
 "use client";
 
-import { FormCard, type OverviewNode, type PendingForm, useControlApi } from "@lework/control-ui";
+import { type OverviewNode, type PendingForm } from "../../types";
+import { useControlApi } from "../../context";
+import { FormCard } from "../../components/form-card";
 import { Badge } from "@lework/ui/components/ui/badge";
 import { Button } from "@lework/ui/components/ui/button";
 import {
@@ -12,7 +14,6 @@ import {
 } from "@lework/ui/components/ui/dialog";
 import { cn } from "@lework/ui/lib/utils";
 import { CheckCircle2, Loader2, RefreshCw, ShieldAlert } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 interface GlobalItem {
@@ -26,8 +27,11 @@ interface GlobalItem {
  * 控制面的审批仍属于具体会话；这里只做跨会话索引，点击后回到
  * ControlConsole 的对应会话处理，避免在第二个地方维护审批状态。
  */
-export function PendingView() {
-	const router = useRouter();
+export function PendingView({
+	onOpenSession,
+}: {
+	onOpenSession: (nodeID: string, sessionID: string) => void;
+}) {
 	const { client } = useControlApi();
 	const [nodes, setNodes] = useState<OverviewNode[]>([]);
 	const [globalItems, setGlobalItems] = useState<GlobalItem[]>([]);
@@ -170,9 +174,7 @@ export function PendingView() {
 								<Button
 									size="sm"
 									onClick={() =>
-										router.push(
-											`/workspaces/console?node=${encodeURIComponent(node.node_id)}&session=${encodeURIComponent(session.session_id)}`,
-										)
+										onOpenSession(node.node_id, session.session_id)
 									}
 								>
 									处理

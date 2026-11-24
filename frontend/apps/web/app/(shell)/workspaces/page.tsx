@@ -1,10 +1,25 @@
+"use client";
+
+import { WorkspacesView, consoleRoutes, workspacePath } from "@lework/control-ui";
+import { useRouter } from "next/navigation";
+
 import { ControlPlaneProvider } from "@/components/ControlPlaneProvider";
-import { WorkspacesView } from "@/components/control-plane/workspaces-view";
+
+function WorkspacesRoute() {
+	const router = useRouter();
+
+	return (
+		<WorkspacesView
+			onOpenWorkspace={(key) => router.push(workspacePath(key))}
+			onOpenNodes={() => router.push(consoleRoutes.nodes)}
+		/>
+	);
+}
 
 export default function WorkspacesPage() {
 	return (
 		<ControlPlaneProvider>
-			<WorkspacesView />
+			<WorkspacesRoute />
 		</ControlPlaneProvider>
 	);
 }

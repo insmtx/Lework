@@ -1,17 +1,24 @@
 "use client";
 
-import { useParams, useSearchParams } from "next/navigation";
+import { WorkspaceConsole, consoleRoutes } from "@lework/control-ui";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 
 import { ControlPlaneProvider } from "@/components/ControlPlaneProvider";
-import { WorkspaceConsole } from "@/components/control-plane/workspace-console";
 
 function WorkspaceConsoleRoute() {
 	const params = useParams<{ key: string }>();
 	const search = useSearchParams();
+	const router = useRouter();
 	const key = decodeURIComponent(params.key);
 
-	return <WorkspaceConsole projectKey={key} initialSessionID={search.get("session")} />;
+	return (
+		<WorkspaceConsole
+			projectKey={key}
+			initialSessionID={search.get("session")}
+			onBack={() => router.push(consoleRoutes.workspaces)}
+		/>
+	);
 }
 
 export default function WorkspaceDetailPage() {

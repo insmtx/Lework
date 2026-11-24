@@ -1556,10 +1556,13 @@ function getDisplayPhone(user: AuthUser | null): string | undefined {
 	return undefined;
 }
 
-function getAppVersion(): string {
-	const version = (import.meta as ImportMeta & { readonly env?: PublicEnv }).env
+/** 桌面构建注入 VITE_ 版本，Web 由 next.config 注入 NEXT_PUBLIC_ 版本。 */
+export function getAppVersion(): string {
+	const viteVersion = (import.meta as ImportMeta & { readonly env?: PublicEnv }).env
 		?.VITE_LEWORK_APP_VERSION;
-	return version?.trim() || "0.0.0";
+	const nextVersion =
+		typeof process !== "undefined" ? process.env.NEXT_PUBLIC_LEWORK_APP_VERSION : undefined;
+	return viteVersion?.trim() || nextVersion?.trim() || "0.0.0";
 }
 
 function isImageFile(file: File): boolean {

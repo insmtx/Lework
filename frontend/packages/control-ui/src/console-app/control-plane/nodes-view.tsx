@@ -1,6 +1,7 @@
 "use client";
 
-import { type ClaimCode, type NodeHealth, type NodeView, useControlApi } from "@lework/control-ui";
+import { type ClaimCode, type NodeHealth, type NodeView } from "../../types";
+import { useControlApi } from "../../context";
 import { Badge } from "@lework/ui/components/ui/badge";
 import { Button } from "@lework/ui/components/ui/button";
 import { cn } from "@lework/ui/lib/utils";

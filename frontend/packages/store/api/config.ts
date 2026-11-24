@@ -37,6 +37,16 @@ function getViteDeploymentMode(): string | undefined {
 	return (import.meta as ImportMeta & { readonly env?: PublicEnv }).env?.VITE_LEWORK_DEPLOYMENT_MODE;
 }
 
+type DesktopBridge = {
+	setApiBaseURL?: (url: string) => Promise<void>;
+	testServerConnection?: (url: string) => Promise<string>;
+};
+
+function getDesktopBridge(): DesktopBridge | undefined {
+	if (typeof window === "undefined") return undefined;
+	return (window as Window & { leworkDesktop?: DesktopBridge }).leworkDesktop;
+}
+
 function hasPrivateDeploymentModeOverride(): boolean {
 	if (typeof window === "undefined") return false;
 
@@ -125,6 +135,8 @@ export function saveServerBaseURL(value: string): string {
 	const normalized = normalizeAPIBaseURL(value);
 	window.localStorage.setItem(SERVER_CONFIG_STORAGE_KEY, normalized);
 	window.localStorage.removeItem(LEGACY_PRIVATE_SERVER_CONFIG_STORAGE_KEY);
+	// 桌面端由主进程负责把 /v1 反代到真实后端，渲染层只通知新地址。
+	void getDesktopBridge()?.setApiBaseURL?.(normalized)?.catch(() => undefined);
 	return normalized;
 }
 
@@ -134,6 +146,9 @@ export function hasPrivateServerConfiguration(): boolean {
 
 export async function testServerConnection(value: string): Promise<string> {
 	const normalized = normalizeAPIBaseURL(value);
+	const bridge = getDesktopBridge()?.testServerConnection;
+	// 桌面端不能从渲染层直连任意上游（会撞 CORS），测试也交给主进程。
+	if (bridge) return bridge(normalized);
 	const controller = new AbortController();
 	const timeoutId = window.setTimeout(() => controller.abort(), CONNECTION_TEST_TIMEOUT_MS);
 
@@ -173,15 +188,30 @@ function isGlobalConfigResponse(value: unknown): boolean {
 	return edition === "oss" || edition === "enterprise";
 }
 
-function resolveAPIBaseURL(): string {
-	const isServer = typeof window === "undefined";
-	// 服务端渲染优先读运行时 LEWORK_API_BASE_URL（容器内可用 http://lework:8080/v1），
-	// 浏览器端优先读用户配置，其次读构建期 NEXT_PUBLIC_*（一体机构建为 /v1）。
-	const baseURL = isServer
-		? getServerRuntimeAPIBaseURL() || DEFAULT_API_BASE_URL
-		: readServerBaseURL() || getViteAPIBaseURL() || getNextAPIBaseURL() || DEFAULT_API_BASE_URL;
+export function chooseAPIBaseURL(input: {
+	isServer: boolean;
+	serverRuntimeURL?: string;
+	buildURL?: string;
+	storedURL: string | null;
+}): string {
+	if (input.isServer) {
+		return normalizeAPIBaseURL(input.serverRuntimeURL || DEFAULT_API_BASE_URL);
+	}
+	// 桌面端构建期注入 /v1：所有私有化地址都经主进程同源代理，渲染层不能
+	// 再优先用 localStorage 里的绝对地址直连。
+	if (input.buildURL?.startsWith("/")) {
+		return normalizeAPIBaseURL(input.buildURL);
+	}
+	return normalizeAPIBaseURL(input.storedURL || input.buildURL || DEFAULT_API_BASE_URL);
+}
 
-	return normalizeAPIBaseURL(baseURL);
+function resolveAPIBaseURL(): string {
+	return chooseAPIBaseURL({
+		isServer: typeof window === "undefined",
+		serverRuntimeURL: getServerRuntimeAPIBaseURL(),
+		buildURL: getViteAPIBaseURL() ?? getNextAPIBaseURL(),
+		storedURL: readServerBaseURL(),
+	});
 }
 
 export const API_BASE_URL = resolveAPIBaseURL();

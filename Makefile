@@ -81,7 +81,7 @@ docker-build-worker:
 	docker build --build-arg WORKER_BASE_IMAGE=$(WORKER_BASE_IMAGE) -t $(REGISTRY)/$(PROJECT)/worker:latest -f deployments/build/Dockerfile.worker .
 
 docker-build-web:
-	docker build -t $(REGISTRY)/$(PROJECT)/web:latest -f deployments/build/Dockerfile.web $(DOCKER_BUILD_ARGS) .
+	docker build -t $(REGISTRY)/$(PROJECT)/web:latest --build-arg APP_VERSION=$(APP_VERSION) -f deployments/build/Dockerfile.web $(DOCKER_BUILD_ARGS) .
 
 # ── 一体机（AIO）──────────────────────────────────────────────────────────────
 # 一体机用 worker 镜像同时跑 server 与内置 worker；Web 以 /v1 同源构建。
@@ -92,6 +92,7 @@ AIO_WEB_IMAGE ?= $(REGISTRY)/$(PROJECT)/web:latest
 aio-build: docker-build-worker-base docker-build-worker
 	docker build -t $(AIO_WEB_IMAGE) \
 		--build-arg NEXT_PUBLIC_LEWORK_API_BASE_URL=/v1 \
+		--build-arg APP_VERSION=$(APP_VERSION) \
 		-f deployments/build/Dockerfile.web .
 
 aio-images: aio-build

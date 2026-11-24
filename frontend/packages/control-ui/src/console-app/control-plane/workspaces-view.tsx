@@ -1,16 +1,12 @@
 "use client";
 
-import {
-	type NodeView,
-	nodeColorStyle,
-	type ProjectSummary,
-	useControlApi,
-} from "@lework/control-ui";
+import { nodeColorStyle } from "../../node-colors";
+import { type NodeView, type ProjectSummary } from "../../types";
+import { useControlApi } from "../../context";
 import { Badge } from "@lework/ui/components/ui/badge";
 import { Button } from "@lework/ui/components/ui/button";
 import { cn } from "@lework/ui/lib/utils";
 import { CloudOff, FolderGit2, Loader2, RefreshCw, Server } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 function baseName(path: string): string {
@@ -33,8 +29,13 @@ function nodeName(nodes: NodeView[], nodeID: string): string {
  * 和主节点。进入详情复用 ControlConsole，因此会话/审批/Diff/文件/终端不需要
  * 在 PC 侧再实现一套。
  */
-export function WorkspacesView() {
-	const router = useRouter();
+export function WorkspacesView({
+	onOpenWorkspace,
+	onOpenNodes,
+}: {
+	onOpenWorkspace: (key: string) => void;
+	onOpenNodes: () => void;
+}) {
 	const { client } = useControlApi();
 	const [projects, setProjects] = useState<ProjectSummary[]>([]);
 	const [nodes, setNodes] = useState<NodeView[]>([]);
@@ -125,7 +126,7 @@ export function WorkspacesView() {
 							先启动 <code className="rounded bg-slate-100 px-1">lework agent</code>，并在节点上打开
 							过至少一个 Git 仓库；OpenCode 上报后工作区会出现在这里。
 						</p>
-						<Button className="mt-4" variant="outline" onClick={() => router.push("/nodes")}>
+						<Button className="mt-4" variant="outline" onClick={onOpenNodes}>
 							<Server className="size-4" /> 管理节点
 						</Button>
 					</div>
@@ -214,7 +215,7 @@ export function WorkspacesView() {
 										</select>
 										<Button
 											size="sm"
-											onClick={() => router.push(`/workspaces/${encodeURIComponent(project.key)}`)}
+											onClick={() => onOpenWorkspace(project.key)}
 											disabled={onlineNodes.length === 0}
 										>
 											打开

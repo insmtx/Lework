@@ -7,6 +7,14 @@
  */
 
 export { ControlAuthGate } from "./components/control-auth-gate";
+export { ConsoleShell } from "./console-app/console-shell";
+export { NodesView } from "./console-app/control-plane/nodes-view";
+export { PendingView } from "./console-app/control-plane/pending-view";
+export { WorkspaceConsole } from "./console-app/control-plane/workspace-console";
+export { WorkspacesView } from "./console-app/control-plane/workspaces-view";
+export { createConsoleNavigation } from "./console-app/navigation";
+export * from "./console-app/pages";
+export * from "./console-app/routes";
 export { Conversation } from "./components/conversation";
 export { DiffView } from "./components/diff-view";
 export { FileBrowser } from "./components/file-browser";

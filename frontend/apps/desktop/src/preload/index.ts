@@ -12,14 +12,22 @@ import {
 	desktopUpdateGetStateChannel,
 	desktopUpdateRestartChannel,
 } from "../shared/auto-update";
+import {
+	type DesktopConfigApi,
+	desktopSetApiBaseURLChannel,
+	desktopTestServerConnectionChannel,
+} from "../shared/desktop-config";
 
-const desktopUpdateApi: DesktopUpdateApi = {
+const desktopApi: DesktopUpdateApi & DesktopConfigApi = {
 	getState: () => ipcRenderer.invoke(desktopUpdateGetStateChannel),
 	checkForUpdates: () => ipcRenderer.invoke(desktopUpdateCheckChannel),
 	quitAndInstall: () => ipcRenderer.invoke(desktopUpdateRestartChannel),
 	openPolicyPdf: (document: DesktopPolicyDocument) =>
 		ipcRenderer.invoke(desktopOpenPolicyPdfChannel, document),
 	openExternal: (url: string) => ipcRenderer.invoke(desktopOpenExternalChannel, url),
+	setApiBaseURL: (url: string) => ipcRenderer.invoke(desktopSetApiBaseURLChannel, url),
+	testServerConnection: (url: string) =>
+		ipcRenderer.invoke(desktopTestServerConnectionChannel, url),
 	subscribe: (listener) => {
 		const handler = (_event: IpcRendererEvent, state: DesktopUpdateState) => {
 			listener(state);
@@ -35,8 +43,8 @@ const desktopUpdateApi: DesktopUpdateApi = {
 
 if (process.contextIsolated) {
 	contextBridge.exposeInMainWorld("electron", electronAPI);
-	contextBridge.exposeInMainWorld("leworkDesktop", desktopUpdateApi);
+	contextBridge.exposeInMainWorld("leworkDesktop", desktopApi);
 } else {
 	window.electron = electronAPI;
-	window.leworkDesktop = desktopUpdateApi;
+	window.leworkDesktop = desktopApi;
 }

@@ -124,7 +124,7 @@ build-image:
           echo "Required variable is missing: NEXT_PUBLIC_LEWORK_API_BASE_URL"
           exit 1
         fi
-        export DOCKER_BUILD_ARGS="--build-arg NEXT_PUBLIC_LEWORK_API_BASE_URL=$NEXT_PUBLIC_LEWORK_API_BASE_URL --build-arg LEWORK_API_BASE_URL=$NEXT_PUBLIC_LEWORK_API_BASE_URL"
+        export DOCKER_BUILD_ARGS="--build-arg NEXT_PUBLIC_LEWORK_API_BASE_URL=$NEXT_PUBLIC_LEWORK_API_BASE_URL --build-arg LEWORK_API_BASE_URL=$NEXT_PUBLIC_LEWORK_API_BASE_URL --build-arg APP_VERSION=${CI_COMMIT_TAG#v}"
         echo "Building web image with API base URL: $NEXT_PUBLIC_LEWORK_API_BASE_URL"
       fi
     - export REGISTRY="$HARBOR_HOST"
