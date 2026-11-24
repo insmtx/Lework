@@ -22,7 +22,11 @@ import { readDesktopConfig, writeDesktopConfig } from "./desktop-config";
 import { isProductionDevToolsShortcut } from "./devtools-shortcut";
 import { shouldOpenExternalUrl } from "./external-navigation";
 import { LOCAL_ORIGIN_PORT, startLocalOrigin, type LocalOrigin } from "./local-origin";
-import { buildRestoreScript, parseLocalStorageSnapshot } from "./local-storage-migration";
+import {
+	buildRestoreScript,
+	parseLocalStorageSnapshot,
+	runBestEffortMigration,
+} from "./local-storage-migration";
 import { configureTrayInteractions } from "./tray-interactions";
 
 const DEFAULT_API_UPSTREAM = "http://localhost:8080/v1";
@@ -145,7 +149,7 @@ function createWindow(): void {
 		window.webContents.once("did-finish-load", () => {
 			void window.webContents
 				.executeJavaScript(buildRestoreScript(entries))
-				.catch(() => undefined)
+				.catch((error) => console.error("[desktop] 恢复旧 localStorage 失败", error))
 				.finally(() => {
 					window.webContents.once("did-finish-load", () => showMainWindow());
 					window.webContents.reload();
@@ -292,7 +296,8 @@ async function readOldLocalStorage(): Promise<Record<string, string>> {
 		await window.loadFile(join(__dirname, "../renderer/index.html"));
 		const raw = await window.webContents.executeJavaScript("JSON.stringify({ ...localStorage })");
 		return parseLocalStorageSnapshot(typeof raw === "string" ? raw : "");
-	} catch {
+	} catch (error) {
+		console.error("[desktop] 读取旧 localStorage 失败", error);
 		return {};
 	} finally {
 		if (!window.isDestroyed()) window.destroy();
@@ -416,7 +421,7 @@ app.whenReady().then(async () => {
 			app.quit();
 			return;
 		}
-		await migrateFromFileOrigin();
+		await runBestEffortMigration(migrateFromFileOrigin);
 	}
 
 	createWindow();

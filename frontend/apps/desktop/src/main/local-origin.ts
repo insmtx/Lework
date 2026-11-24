@@ -117,13 +117,16 @@ export function rewriteSetCookie(
  *
  * `/v1` 的配置地址通常带结尾 `/v1`，拼接前去掉，避免出现 `/v1/v1`。
  */
-export function upstreamForPath(path: string, upstreams: Upstreams): { base: string; path: string } | null {
+export function upstreamForPath(
+	path: string,
+	upstreams: Upstreams,
+): { base: string; path: string; kind: "api" | "legacy" } | null {
 	if (path === "/api" || path.startsWith("/api/") || path.startsWith("/api?")) {
-		return { base: upstreams.controlPlaneBaseURL.replace(/\/+$/, ""), path };
+		return { base: upstreams.controlPlaneBaseURL.replace(/\/+$/, ""), path, kind: "api" };
 	}
 	if (path === "/v1" || path.startsWith("/v1/") || path.startsWith("/v1?")) {
 		const base = upstreams.apiBaseURL.replace(/\/+$/, "").replace(/\/v1$/, "");
-		return { base, path };
+		return { base, path, kind: "legacy" };
 	}
 	return null;
 }
@@ -197,10 +200,17 @@ export async function startLocalOrigin(options: {
 function proxyRequest(
 	req: IncomingMessage,
 	res: ServerResponse,
-	target: { base: string; path: string },
+	target: { base: string; path: string; kind: "api" | "legacy" },
 	originProtocol: "http:" | "https:",
 ): void {
-	const url = new URL(target.base);
+	let url: URL;
+	try {
+		url = new URL(target.base);
+	} catch {
+		res.statusCode = 502;
+		res.end("invalid upstream");
+		return;
+	}
 	if (url.protocol !== "http:" && url.protocol !== "https:") {
 		res.statusCode = 502;
 		res.end("invalid upstream");
@@ -208,6 +218,9 @@ function proxyRequest(
 	}
 
 	const headers = proxyRequestHeaders(req.headers);
+	// 控制面会话 cookie 属于 127.0.0.1，浏览器会把它带到同源的 /v1；
+	// 远端 /v1 不是它的受众，绝不能转发。
+	if (target.kind === "legacy") delete headers.cookie;
 	headers.host = url.host;
 	const request = url.protocol === "https:" ? httpsRequest : httpRequest;
 	const upstream = request(
@@ -226,7 +239,8 @@ function proxyRequest(
 				res.setHeader(name, value);
 			}
 			const cookies = upstreamRes.headers["set-cookie"];
-			if (cookies?.length) {
+			// 只允许控制面在本源写 cookie；/v1 上游不能覆盖本地会话。
+			if (target.kind === "api" && cookies?.length) {
 				res.setHeader("set-cookie", rewriteSetCookie(cookies, originProtocol));
 			}
 			// 逐块 pipe：SSE 与长响应不能被缓冲。
@@ -248,10 +262,16 @@ function proxyUpgrade(
 	req: IncomingMessage,
 	socket: Duplex,
 	head: Buffer,
-	target: { base: string; path: string },
+	target: { base: string; path: string; kind: "api" | "legacy" },
 	sockets: Set<Duplex>,
 ): void {
-	const url = new URL(target.base);
+	let url: URL;
+	try {
+		url = new URL(target.base);
+	} catch {
+		socket.destroy();
+		return;
+	}
 	const secure = url.protocol === "https:";
 	const port = Number(url.port || (secure ? 443 : 80));
 	if (url.protocol !== "http:" && !secure) {
@@ -268,6 +288,7 @@ function proxyUpgrade(
 
 	const handshake = () => {
 		const headers = proxyRequestHeaders(req.headers);
+		if (target.kind === "legacy") delete headers.cookie;
 		// 升级握手必须保留 Connection / Upgrade，否则上游会当成普通请求。
 		if (req.headers.connection) headers.connection = req.headers.connection;
 		if (req.headers.upgrade) headers.upgrade = req.headers.upgrade;

@@ -76,10 +76,12 @@ describe("local origin helpers", () => {
 		expect(upstreamForPath("/api/me", upstreams)).toEqual({
 			base: "http://127.0.0.1:8787",
 			path: "/api/me",
+			kind: "api",
 		});
 		expect(upstreamForPath("/v1/GlobalConfig", upstreams)).toEqual({
 			base: "https://api.example.com",
 			path: "/v1/GlobalConfig",
+			kind: "legacy",
 		});
 		expect(upstreamForPath("/index.html", upstreams)).toBeNull();
 	});
@@ -107,6 +109,39 @@ describe("local origin server", () => {
 		});
 		expect(await response.text()).toBe("upstream:/api/hello:none");
 		expect(response.headers.get("set-cookie")).toBe("lework_session=x; Path=/; HttpOnly");
+	});
+
+	it("does not leak the control-plane cookie to the legacy /v1 upstream", async () => {
+		const rootDir = mkdtempSync(join(tmpdir(), "lework-origin-"));
+		const { base } = await startUpstream((req, res) => {
+			res.setHeader("set-cookie", "remote=1; Path=/");
+			res.end(`cookie:${req.headers.cookie ?? "none"}`);
+		});
+		const proxy = await startProxy({
+			rootDir,
+			apiBaseURL: `${base}/v1`,
+			controlPlaneBaseURL: base,
+		});
+
+		const response = await fetch(`${proxy.origin}/v1/GlobalConfig`, {
+			headers: { cookie: "lework_session=secret" },
+		});
+
+		expect(await response.text()).toBe("cookie:none");
+		expect(response.headers.get("set-cookie")).toBeNull();
+	});
+
+	it("returns 502 for an invalid upstream instead of crashing", async () => {
+		const rootDir = mkdtempSync(join(tmpdir(), "lework-origin-"));
+		const proxy = await startProxy({
+			rootDir,
+			apiBaseURL: "not a url",
+			controlPlaneBaseURL: "not a url",
+		});
+
+		const response = await fetch(`${proxy.origin}/api/hello`);
+
+		expect(response.status).toBe(502);
 	});
 
 	it("forwards websocket upgrades", async () => {

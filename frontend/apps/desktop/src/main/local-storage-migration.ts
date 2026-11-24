@@ -21,6 +21,23 @@ export function parseLocalStorageSnapshot(raw: string): Record<string, string> {
 	return entries;
 }
 
+/**
+ * 迁移失败不能让桌面起不来：读旧数据、写新配置都可能因权限/磁盘出错，
+ * 这里统一兜住并留一条日志，窗口照常创建。
+ */
+export async function runBestEffortMigration(
+	migrate: () => Promise<void>,
+	onError: (error: unknown) => void = (error) => {
+		console.error("[desktop] 旧本地数据迁移失败", error);
+	},
+): Promise<void> {
+	try {
+		await migrate();
+	} catch (error) {
+		onError(error);
+	}
+}
+
 export function buildRestoreScript(entries: Record<string, string>): string {
 	return Object.entries(entries)
 		.map(
