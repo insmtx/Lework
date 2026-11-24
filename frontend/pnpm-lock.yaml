@@ -486,6 +486,9 @@ importers:
       '@lework/app-ui':
         specifier: workspace:*
         version: link:../app-ui
+      '@lework/store':
+        specifier: workspace:*
+        version: link:../store
       '@lework/tool-view':
         specifier: workspace:*
         version: link:../tool-view
@@ -504,6 +507,9 @@ importers:
       react:
         specifier: ^19
         version: 19.3.0
+      sonner:
+        specifier: ^2.0.7
+        version: 2.0.7(react-dom@19.2.3(react@19.3.0))(react@19.3.0)
     devDependencies:
       '@lework/tsconfig':
         specifier: workspace:*
@@ -13816,6 +13822,11 @@ snapshots:
     dependencies:
       react: 19.2.3
       react-dom: 19.2.3(react@19.2.3)
+
+  sonner@2.0.7(react-dom@19.2.3(react@19.3.0))(react@19.3.0):
+    dependencies:
+      react: 19.3.0
+      react-dom: 19.2.3(react@19.3.0)
 
   source-map-js@1.2.1: {}
 

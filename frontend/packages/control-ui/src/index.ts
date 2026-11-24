@@ -7,6 +7,10 @@
  */
 
 export { ControlAuthGate } from "./components/control-auth-gate";
+export { ConsoleShell } from "./console-app/console-shell";
+export { createConsoleNavigation } from "./console-app/navigation";
+export * from "./console-app/pages";
+export * from "./console-app/routes";
 export { Conversation } from "./components/conversation";
 export { DiffView } from "./components/diff-view";
 export { FileBrowser } from "./components/file-browser";

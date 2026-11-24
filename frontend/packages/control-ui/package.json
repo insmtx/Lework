@@ -13,11 +13,13 @@
 	"dependencies": {
 		"@lework/api": "workspace:*",
 		"@lework/app-ui": "workspace:*",
+		"@lework/store": "workspace:*",
 		"@lework/tool-view": "workspace:*",
 		"@lework/ui": "workspace:*",
 		"@xterm/addon-fit": "^0.11.0",
 		"@xterm/xterm": "^6.0.0",
-		"lucide-react": "catalog:"
+		"lucide-react": "catalog:",
+		"sonner": "^2.0.7"
 	},
 	"peerDependencies": {
 		"react": "^19"
