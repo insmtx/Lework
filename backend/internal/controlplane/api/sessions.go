@@ -331,6 +331,150 @@ func (a *API) handleListPermissions(w http.ResponseWriter, r *http.Request) {
 	writeRawJSON(w, http.StatusOK, result)
 }
 
+// formListParams / formGlobalListParams / formReplyParams / formCancelParams 是
+// 表单转发参数；global 表单用 session_id="global" 加目录区分位置。
+type formListParams struct {
+	SessionID string `json:"session_id"`
+}
+
+type formGlobalListParams struct {
+	Directory string `json:"directory,omitempty"`
+}
+
+type formReplyParams struct {
+	SessionID string         `json:"session_id"`
+	FormID    string         `json:"form_id"`
+	Directory string         `json:"directory,omitempty"`
+	Answer    map[string]any `json:"answer"`
+}
+
+type formCancelParams struct {
+	SessionID string `json:"session_id"`
+	FormID    string `json:"form_id"`
+	Directory string `json:"directory,omitempty"`
+	Message   string `json:"message,omitempty"`
+}
+
+// sessionFormReplyRequest 是会话表单回答请求体；一张表单一次提交。
+type sessionFormReplyRequest struct {
+	Answer map[string]any `json:"answer"`
+}
+
+// nodeFormReplyRequest 是位置级表单回答请求体；目录由浏览器给出。
+type nodeFormReplyRequest struct {
+	Directory string         `json:"directory"`
+	Answer    map[string]any `json:"answer"`
+}
+
+// handleListSessionForms 返回会话的待回答表单；与权限列表一样用于事件重放缺失
+// 时的收敛。
+func (a *API) handleListSessionForms(w http.ResponseWriter, r *http.Request) {
+	result, err := a.callAgent(r.Context(), r.PathValue("nodeID"), "form.list",
+		formListParams{SessionID: r.PathValue("sessionID")})
+	if err != nil {
+		a.writeAgentError(w, err)
+		return
+	}
+	writeRawJSON(w, http.StatusOK, result)
+}
+
+// handleReplySessionForm 提交整张会话表单。
+func (a *API) handleReplySessionForm(w http.ResponseWriter, r *http.Request) {
+	var req sessionFormReplyRequest
+	if err := decodeRequest(w, r, &req); err != nil || len(req.Answer) == 0 {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", "answer is required")
+		return
+	}
+	result, err := a.callAgent(r.Context(), r.PathValue("nodeID"), "form.reply",
+		formReplyParams{
+			SessionID: r.PathValue("sessionID"),
+			FormID:    r.PathValue("formID"),
+			Answer:    req.Answer,
+		})
+	if err != nil {
+		a.writeAgentError(w, err)
+		return
+	}
+	writeRawJSON(w, http.StatusOK, result)
+}
+
+// handleCancelSessionForm 取消整张会话表单；message 是可选用户反馈。
+func (a *API) handleCancelSessionForm(w http.ResponseWriter, r *http.Request) {
+	result, err := a.callAgent(r.Context(), r.PathValue("nodeID"), "form.cancel",
+		formCancelParams{
+			SessionID: r.PathValue("sessionID"),
+			FormID:    r.PathValue("formID"),
+			Message:   r.URL.Query().Get("message"),
+		})
+	if err != nil {
+		a.writeAgentError(w, err)
+		return
+	}
+	writeRawJSON(w, http.StatusOK, result)
+}
+
+// handleListNodeForms 枚举节点上的位置级表单；directory 为空时由 agent 枚举
+// 全部已知目录。
+func (a *API) handleListNodeForms(w http.ResponseWriter, r *http.Request) {
+	result, err := a.callAgent(r.Context(), r.PathValue("nodeID"), "form.global_list",
+		formGlobalListParams{Directory: r.URL.Query().Get("directory")})
+	if err != nil {
+		a.writeAgentError(w, err)
+		return
+	}
+	writeRawJSON(w, http.StatusOK, result)
+}
+
+// handleReplyNodeForm 提交整张位置级表单；回复必须带目录才定位得到。
+func (a *API) handleReplyNodeForm(w http.ResponseWriter, r *http.Request) {
+	var req nodeFormReplyRequest
+	if err := decodeRequest(w, r, &req); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", "invalid request body")
+		return
+	}
+	if strings.TrimSpace(req.Directory) == "" {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", "directory is required")
+		return
+	}
+	if len(req.Answer) == 0 {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", "answer is required")
+		return
+	}
+	result, err := a.callAgent(r.Context(), r.PathValue("nodeID"), "form.reply",
+		formReplyParams{
+			SessionID: "global",
+			FormID:    r.PathValue("formID"),
+			Directory: req.Directory,
+			Answer:    req.Answer,
+		})
+	if err != nil {
+		a.writeAgentError(w, err)
+		return
+	}
+	writeRawJSON(w, http.StatusOK, result)
+}
+
+// handleCancelNodeForm 取消整张位置级表单。
+func (a *API) handleCancelNodeForm(w http.ResponseWriter, r *http.Request) {
+	directory := r.URL.Query().Get("directory")
+	if strings.TrimSpace(directory) == "" {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", "directory is required")
+		return
+	}
+	result, err := a.callAgent(r.Context(), r.PathValue("nodeID"), "form.cancel",
+		formCancelParams{
+			SessionID: "global",
+			FormID:    r.PathValue("formID"),
+			Directory: directory,
+			Message:   r.URL.Query().Get("message"),
+		})
+	if err != nil {
+		a.writeAgentError(w, err)
+		return
+	}
+	writeRawJSON(w, http.StatusOK, result)
+}
+
 // handleSessionDiff 转发 turn diff；directory 只用于 agent 侧边界校验。
 func (a *API) handleSessionDiff(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()

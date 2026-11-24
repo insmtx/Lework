@@ -188,6 +188,12 @@ func (a *API) Register(mux *http.ServeMux) {
 	a.nodeRoute(mux, "POST /api/sessions/{nodeID}/{sessionID}/permissions/{permissionID}/reply",
 		a.handlePermissionReply)
 	a.nodeRoute(mux, "GET /api/sessions/{nodeID}/{sessionID}/permissions", a.handleListPermissions)
+	a.nodeRoute(mux, "GET /api/sessions/{nodeID}/{sessionID}/forms", a.handleListSessionForms)
+	a.nodeRoute(mux, "POST /api/sessions/{nodeID}/{sessionID}/forms/{formID}/reply", a.handleReplySessionForm)
+	a.nodeRoute(mux, "DELETE /api/sessions/{nodeID}/{sessionID}/forms/{formID}", a.handleCancelSessionForm)
+	a.nodeRoute(mux, "GET /api/nodes/{nodeID}/forms", a.handleListNodeForms)
+	a.nodeRoute(mux, "POST /api/nodes/{nodeID}/forms/{formID}/reply", a.handleReplyNodeForm)
+	a.nodeRoute(mux, "DELETE /api/nodes/{nodeID}/forms/{formID}", a.handleCancelNodeForm)
 
 	mux.HandleFunc("GET /api/events", a.handleEvents)
 

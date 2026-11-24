@@ -123,6 +123,12 @@ func TestNodeRoutesAuthorizeEveryRouteFamily(t *testing.T) {
 		{http.MethodDelete, "/api/sessions/" + node.ID + "/ses_1/pty/pty_1"},
 		{http.MethodPost, "/api/sessions/" + node.ID + "/ses_1/permissions/perm_1/reply"},
 		{http.MethodGet, "/api/sessions/" + node.ID + "/ses_1/permissions"},
+		{http.MethodGet, "/api/sessions/" + node.ID + "/ses_1/forms"},
+		{http.MethodPost, "/api/sessions/" + node.ID + "/ses_1/forms/frm_1/reply"},
+		{http.MethodDelete, "/api/sessions/" + node.ID + "/ses_1/forms/frm_1"},
+		{http.MethodGet, "/api/nodes/" + node.ID + "/forms?directory=%2Fwork"},
+		{http.MethodPost, "/api/nodes/" + node.ID + "/forms/frm_1/reply"},
+		{http.MethodDelete, "/api/nodes/" + node.ID + "/forms/frm_1?directory=%2Fwork"},
 	}
 
 	for _, route := range routes {
