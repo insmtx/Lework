@@ -6,6 +6,7 @@ import { useOverview } from "../overview/use-overview";
 import { useProjects } from "../projects/use-projects";
 import { isUnread as computeUnread, watermarkKey } from "../read/read-state";
 import { useReadState } from "../read/use-read-state";
+import { sortSessionsByActivity } from "../sessions/select";
 import { createSecureSettingsStore } from "../settings/secure-store";
 import { clearExpiredSession } from "../settings/session";
 import { setSessionExpiredHandler } from "../settings/session-events";
@@ -14,6 +15,9 @@ import { buildSidebarGroups } from "../sidebar/model";
 import { useSidebarSessions } from "../sidebar/use-sidebar-sessions";
 import { AppDrawer } from "./app-drawer";
 import { AppShellContext, type AppShellValue } from "./app-shell-context";
+
+// 首页只露最近几条：它的作用是继续刚才的对话，不是完整列表。
+const HOME_RECENT_LIMIT = 3;
 
 /**
  * AppShell 持有全 App 共享的连接、项目与侧边栏数据。
@@ -95,14 +99,18 @@ export function AppShell({ children }: { children: ReactNode }) {
 		[projects.projects, projects.inbox.project?.key, sidebar.sessions, onlineNodeIDs, sessionState],
 	);
 
+	const recentSessions = useMemo(
+		() => sortSessionsByActivity(sidebar.sessions).slice(0, HOME_RECENT_LIMIT),
+		[sidebar.sessions],
+	);
+
 	const pendingCount = useMemo(
 		() =>
 			overviewNodes.reduce(
 				(total, node) =>
 					total +
 					node.sessions.reduce(
-						(sum, session) =>
-							sum + session.pending_permissions + (session.pending_forms ?? 0),
+						(sum, session) => sum + session.pending_permissions + (session.pending_forms ?? 0),
 						0,
 					) +
 					// 离线节点的 global 表单无法立即处理，和审批一样不计入徽标。
@@ -123,7 +131,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 	const refreshSidebar = useCallback(() => {
 		sidebar.refresh();
 		projects.refresh();
-	}, [sidebar, projects]);
+	}, [sidebar.refresh, projects.refresh]);
 
 	const startNewTask = useCallback(() => {
 		setDrawerOpen(false);
@@ -148,6 +156,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 			markRead: read.markRead,
 			isUnread,
 			groups,
+			recentSessions,
 			sidebarLoading: sidebar.loading,
 			refreshSidebar,
 			drawerOpen,
@@ -173,6 +182,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 			read.markRead,
 			isUnread,
 			groups,
+			recentSessions,
 			sidebar.loading,
 			refreshSidebar,
 			drawerOpen,

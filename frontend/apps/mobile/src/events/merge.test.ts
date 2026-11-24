@@ -92,6 +92,21 @@ describe("applyEvent", () => {
 		expect(sessionOf(state.nodes)?.state).toBe("error");
 	});
 
+	it("新一轮执行开始把 idle/error 拉回 running", () => {
+		let state = applyEvent(
+			createOverviewState(base),
+			event({ type: "session.execution.succeeded" }),
+		);
+		expect(sessionOf(state.nodes)?.state).toBe("idle");
+
+		state = applyEvent(state, event({ type: "session.execution.started" }));
+		expect(sessionOf(state.nodes)?.state).toBe("running");
+
+		state = applyEvent(state, event({ type: "session.execution.failed" }));
+		state = applyEvent(state, event({ type: "session.execution.started" }));
+		expect(sessionOf(state.nodes)?.state).toBe("running");
+	});
+
 	it("新会话从 running 开始并可更新标题", () => {
 		const state = applyEvent(
 			createOverviewState(base),

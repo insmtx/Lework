@@ -3,6 +3,7 @@ import { createContext, useContext, useEffect } from "react";
 
 import type { ProjectsState } from "../projects/use-projects";
 import type { Watermarks } from "../read/read-state";
+import type { ProjectSessionRef } from "../sessions/select";
 import type { Settings } from "../settings/settings";
 import type { SidebarGroup } from "../sidebar/model";
 
@@ -30,6 +31,8 @@ export interface AppShellValue {
 	isUnread: (updatedAt: string | undefined, nodeID: string, sessionID: string) => boolean;
 	/** 侧边栏按项目分组的会话。 */
 	groups: SidebarGroup[];
+	/** 跨项目按活动时间倒序的最近会话，供首页快捷入口。 */
+	recentSessions: ProjectSessionRef[];
 	sidebarLoading: boolean;
 	refreshSidebar: () => void;
 	drawerOpen: boolean;

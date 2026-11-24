@@ -48,6 +48,26 @@ func TestApplyTerminalStates(t *testing.T) {
 	}
 }
 
+// TestApplyExecutionStartedRevivesTerminalState 固化同一会话第二轮执行的状态：
+// 上一轮结束后会话停在 idle/error，新的 session.execution.started 必须把它拉回
+// running，否则总览会一直显示上一轮的旧状态。
+func TestApplyExecutionStartedRevivesTerminalState(t *testing.T) {
+	idx := NewIndex()
+	idx.Apply(event.Event{NodeID: "node_1", SessionID: "ses_1", Type: "session.created"})
+	idx.Apply(event.Event{NodeID: "node_1", SessionID: "ses_1", Type: "session.execution.succeeded"})
+
+	idx.Apply(event.Event{NodeID: "node_1", SessionID: "ses_1", Type: "session.execution.started"})
+	if got := idx.Snapshot()[0].Sessions[0].State; got != StateRunning {
+		t.Fatalf("state after started = %q, want running", got)
+	}
+
+	idx.Apply(event.Event{NodeID: "node_1", SessionID: "ses_1", Type: "session.execution.failed"})
+	idx.Apply(event.Event{NodeID: "node_1", SessionID: "ses_1", Type: "session.execution.started"})
+	if got := idx.Snapshot()[0].Sessions[0].State; got != StateRunning {
+		t.Fatalf("state after retry = %q, want running", got)
+	}
+}
+
 func TestApplyKeepsWaitingWhenMessageArrives(t *testing.T) {
 	idx := NewIndex()
 	data, _ := json.Marshal(map[string]string{"id": "perm_1"})

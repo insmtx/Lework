@@ -216,6 +216,11 @@ func (i *Index) Apply(ev event.Event) {
 			sess.state = StateRunning
 		}
 
+	case "session.execution.started":
+		// 上一轮结束后会话停在 idle/error；没有这条，新一次执行开始后
+		// 仍会显示上一轮的旧状态，同一节点上的多个会话就会各显各的。
+		sess.state = StateRunning
+
 	case "session.execution.failed":
 		sess.state = StateError
 		sess.pending = make(map[string]Permission)
