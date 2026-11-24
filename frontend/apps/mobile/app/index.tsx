@@ -1,4 +1,4 @@
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { type ComponentRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	Alert,
@@ -19,6 +19,7 @@ import { newIdempotencyKey, sendToProject } from "../src/composer/send";
 import { sessionRoute } from "../src/config";
 import { nodeColorSwatch } from "../src/nodes/colors";
 import {
+	findProjectForSession,
 	nodeCanCreateProject,
 	nodeCanCreateSession,
 	projectDirectoryOnNode,
@@ -34,6 +35,7 @@ import { useAppShell, useScreenTitle } from "../src/ui/app-shell-context";
 import { ComposerBar, ComposerChip } from "../src/ui/composer-bar";
 import { BrandSpinner } from "../src/ui/loading";
 import { OptionSheet, type OptionSheetItem } from "../src/ui/option-sheet";
+import { SessionRow } from "../src/ui/session-row";
 import { DrawerButton } from "../src/ui/top-bar";
 
 // 首页草稿不跟随项目切换：用户还没决定发给谁时，字不能丢。
@@ -48,15 +50,23 @@ const PENDING_PROJECT_OPTION_KEY = "__pending_project__";
 /**
  * 首页只做一件事：直接说任务。
  *
- * 没有标题、路径、会话列表或节点信息——导航在侧边栏，历史在项目页。
- * 默认自动挑节点（主节点 → 最近在线）；输入框上方的 chip 允许用户临时
- * 指定电脑与项目，选择只在本次停留有效。
+ * 没有标题与路径——导航在侧边栏，完整历史在项目页；输入框下方只留几条最近
+ * 会话作为继续入口。默认自动挑节点（主节点 → 最近在线）；输入框上方的 chip
+ * 允许用户临时指定电脑与项目，选择只在本次停留有效。
  */
 export default function HomeScreen() {
 	useScreenTitle("新任务");
 	const theme = useTheme();
 	const styles = useThemedStyles(createStyles);
-	const { settings, settingsLoading, projects, newTaskSeq } = useAppShell();
+	const {
+		settings,
+		settingsLoading,
+		projects,
+		newTaskSeq,
+		recentSessions,
+		sessionState,
+		refreshSidebar,
+	} = useAppShell();
 	const insets = useSafeAreaInsets();
 	const store = useMemo(() => createSecureDraftStore(), []);
 	const inputRef = useRef<ComponentRef<typeof TextInput>>(null);
@@ -101,6 +111,27 @@ export default function HomeScreen() {
 				? (projects.projects.find((project) => project.key === target.projectKey) ?? null)
 				: null,
 		[projects.projects, target.projectKey],
+	);
+
+	const nodeNameByID = useMemo(
+		() => Object.fromEntries(projects.nodes.map((node) => [node.id, node.name || node.id])),
+		[projects.nodes],
+	);
+	const nodeColorByID = useMemo(
+		() => Object.fromEntries(projects.nodes.map((node) => [node.id, node.color ?? ""])),
+		[projects.nodes],
+	);
+	const recentRows = useMemo(
+		() =>
+			recentSessions.map((ref) => {
+				const project = findProjectForSession(ref.session, projects.projects);
+				return {
+					key: `${ref.nodeID}:${ref.session.id}`,
+					ref,
+					projectName: project ? projectDisplayName(project) : "",
+				};
+			}),
+		[recentSessions, projects.projects],
 	);
 
 	const canPickTarget = !settingsLoading && Boolean(settings?.sessionToken);
@@ -200,6 +231,14 @@ export default function HomeScreen() {
 		const timer = setTimeout(() => inputRef.current?.focus(), 60);
 		return () => clearTimeout(timer);
 	}, [newTaskSeq]);
+
+	// 回到首页时刷新会话快照：状态由事件流实时更新，列表成员与标题靠这次拉取。
+	useFocusEffect(
+		useCallback(() => {
+			if (!settings?.sessionToken) return;
+			refreshSidebar();
+		}, [settings?.sessionToken, refreshSidebar]),
+	);
 
 	const changeText = useCallback(
 		(text: string) => {
@@ -371,6 +410,23 @@ export default function HomeScreen() {
 					</View>
 				</View>
 
+				{recentRows.length > 0 ? (
+					<View style={styles.recent}>
+						<Text style={styles.recentTitle}>最近会话</Text>
+						{recentRows.map(({ key, ref, projectName }) => (
+							<SessionRow
+								key={key}
+								nodeID={ref.nodeID}
+								session={ref.session}
+								nodeName={nodeNameByID[ref.nodeID]}
+								nodeColor={nodeColorByID[ref.nodeID]}
+								projectName={projectName}
+								state={sessionState(ref.nodeID, ref.session.id)}
+							/>
+						))}
+					</View>
+				) : null}
+
 				{!settingsLoading && !settings?.sessionToken ? (
 					<Pressable style={styles.link} onPress={() => router.push("/login")}>
 						<Text style={styles.linkText}>登录以查看电脑</Text>
@@ -474,6 +530,14 @@ function createStyles(theme: Theme) {
 			gap: 12,
 		},
 		reason: { flex: 1, fontSize: 12, color: colors.textMuted },
+		recent: { width: "100%", marginTop: 20, gap: 2 },
+		recentTitle: {
+			fontSize: 12,
+			fontWeight: "600",
+			color: colors.textMuted,
+			paddingHorizontal: 4,
+			paddingBottom: 2,
+		},
 		send: {
 			height: 38,
 			minWidth: 72,

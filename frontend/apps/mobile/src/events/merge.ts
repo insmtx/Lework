@@ -94,6 +94,10 @@ function dropSeen(seen: Record<string, true>, prefix: string): void {
 
 function applyState(session: OverviewSession, type: string): SessionState {
 	switch (type) {
+		case "session.execution.started":
+			// 与后端 overview 投影保持一致：新一轮执行开始必须清掉上一轮的
+			// idle/error，否则列表会一直停在旧状态直到下一次整页刷新。
+			return "running";
 		case "session.execution.failed":
 			return "error";
 		case "session.execution.succeeded":

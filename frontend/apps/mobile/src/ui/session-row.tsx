@@ -22,18 +22,23 @@ export function SessionRow({
 	session,
 	nodeName,
 	nodeColor,
+	projectName,
 	state,
 }: {
 	nodeID: string;
 	session: Session;
 	nodeName?: string;
 	nodeColor?: string;
+	/** 跨项目列表（如首页）传项目名；项目页自身已有上下文，不必传。 */
+	projectName?: string;
 	state?: SessionState;
 }) {
 	const styles = useThemedStyles(createStyles);
 	const { isUnread } = useAppShell();
 	const unread = isUnread(session.updatedAt, nodeID, session.id);
-	const meta = [nodeName ?? "", formatRelativeTime(session.updatedAt)].filter(Boolean).join(" · ");
+	const meta = [projectName ?? "", nodeName ?? "", formatRelativeTime(session.updatedAt)]
+		.filter(Boolean)
+		.join(" · ");
 
 	return (
 		<Pressable
