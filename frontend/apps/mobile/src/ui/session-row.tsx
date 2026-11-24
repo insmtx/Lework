@@ -8,7 +8,7 @@ import { formatRelativeTime } from "../sidebar/model";
 import type { Theme } from "../theme/theme";
 import { useThemedStyles } from "../theme/use-theme";
 import { useAppShell } from "./app-shell-context";
-import { SessionStatusDot, UnreadDot } from "./session-status-dot";
+import { SessionStatusMark, UnreadDot } from "./session-status-mark";
 
 /**
  * SessionRow 渲染一条会话；标题缺失时退回 id，保证永远可点。
@@ -45,7 +45,7 @@ export function SessionRow({
 			onPress={() => router.push(sessionRoute(nodeID, session.id))}
 		>
 			<View style={styles.titleRow}>
-				<SessionStatusDot state={state} />
+				<SessionStatusMark state={state} color={nodeColorSwatch(nodeColor)} />
 				<Text style={styles.title} numberOfLines={1}>
 					{session.title || session.id}
 				</Text>

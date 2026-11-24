@@ -391,7 +391,12 @@ export default function SessionScreen() {
 				status={
 					<View style={styles.topStatus}>
 						{nodeColor ? <View style={[styles.nodeDot, { backgroundColor: nodeColor }]} /> : null}
-						<SessionStatusIcon state={shownStatus} color={statusColor(theme, tone)} size={15} />
+						<SessionStatusIcon
+							state={shownStatus}
+							color={statusColor(theme, tone)}
+							nodeColor={nodeColor}
+							size={15}
+						/>
 					</View>
 				}
 				extra={
