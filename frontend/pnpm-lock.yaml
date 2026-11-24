@@ -503,20 +503,35 @@ importers:
         version: 6.0.0
       lucide-react:
         specifier: 'catalog:'
-        version: 1.17.0(react@19.3.0)
+        version: 1.17.0(react@19.2.3)
       react:
-        specifier: ^19
-        version: 19.3.0
+        specifier: 'catalog:'
+        version: 19.2.3
       sonner:
         specifier: ^2.0.7
-        version: 2.0.7(react-dom@19.2.3(react@19.3.0))(react@19.3.0)
+        version: 2.0.7(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
     devDependencies:
       '@lework/tsconfig':
         specifier: workspace:*
         version: link:../tsconfig
+      '@testing-library/jest-dom':
+        specifier: 'catalog:'
+        version: 6.9.1
+      '@testing-library/react':
+        specifier: 'catalog:'
+        version: 16.3.2(@testing-library/dom@10.4.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       '@types/react':
         specifier: 'catalog:'
         version: 19.2.17
+      '@types/react-dom':
+        specifier: 'catalog:'
+        version: 19.2.3(@types/react@19.2.17)
+      jsdom:
+        specifier: 'catalog:'
+        version: 29.1.1(@noble/hashes@2.2.0)
+      react-dom:
+        specifier: 'catalog:'
+        version: 19.2.3(react@19.2.3)
       typescript:
         specifier: 'catalog:'
         version: 5.9.3
@@ -11853,10 +11868,6 @@ snapshots:
     dependencies:
       react: 19.2.3
 
-  lucide-react@1.17.0(react@19.3.0):
-    dependencies:
-      react: 19.3.0
-
   lz-string@1.5.0: {}
 
   magic-string@0.30.21:
@@ -13822,11 +13833,6 @@ snapshots:
     dependencies:
       react: 19.2.3
       react-dom: 19.2.3(react@19.2.3)
-
-  sonner@2.0.7(react-dom@19.2.3(react@19.3.0))(react@19.3.0):
-    dependencies:
-      react: 19.3.0
-      react-dom: 19.2.3(react@19.3.0)
 
   source-map-js@1.2.1: {}
 

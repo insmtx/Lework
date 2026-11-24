@@ -22,11 +22,16 @@
 		"sonner": "^2.0.7"
 	},
 	"peerDependencies": {
-		"react": "^19"
+		"react": "catalog:"
 	},
 	"devDependencies": {
 		"@lework/tsconfig": "workspace:*",
+		"@testing-library/jest-dom": "catalog:",
+		"@testing-library/react": "catalog:",
 		"@types/react": "catalog:",
+		"@types/react-dom": "catalog:",
+		"jsdom": "catalog:",
+		"react-dom": "catalog:",
 		"typescript": "catalog:",
 		"vitest": "catalog:"
 	}
