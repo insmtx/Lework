@@ -106,6 +106,7 @@ function RootNavigator() {
 						<Stack.Screen name="login" options={{ title: "登录", headerShown: false }} />
 						<Stack.Screen name="settings/account" options={{ title: "账号" }} />
 						<Stack.Screen name="session/[node]/[id]" options={{ headerShown: false }} />
+						<Stack.Screen name="forms/[node]/[id]" options={{ title: "全局表单" }} />
 					</Stack>
 					{/* 更新 Modal 放在导航之外：任何页面都会覆盖，路由切换不打断下载提示。 */}
 					<UpdateGate />
