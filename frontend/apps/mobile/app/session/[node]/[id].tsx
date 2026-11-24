@@ -4,8 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	FlatList,
 	Modal,
-	type NativeScrollEvent,
-	type NativeSyntheticEvent,
 	Pressable,
 	RefreshControl,
 	StyleSheet,
@@ -20,10 +18,10 @@ import { findProjectForSession, projectDirectoryOnNode } from "../../../src/proj
 import { FormCard } from "../../../src/session/form-card";
 import { MessageRow } from "../../../src/session/message-row";
 import { filterVisibleMessages } from "../../../src/session/messages";
-import { isNearBottom } from "../../../src/session/scroll";
 import { runSend } from "../../../src/session/send-flow";
 import { statusColor, statusTone } from "../../../src/session/status";
 import { SessionStatusIcon } from "../../../src/session/status-icon";
+import { useAutoFollow } from "../../../src/session/use-auto-follow";
 import { useSession } from "../../../src/session/use-session";
 import { selectSiblingSessions } from "../../../src/sessions/select";
 import { useNodeSessions } from "../../../src/sessions/use-node-sessions";
@@ -202,6 +200,7 @@ export default function SessionScreen() {
 		notFound,
 		state: localState,
 		hasNewBelow,
+		following,
 		setFollowing,
 		jumpToLatest,
 	} = useSession(settings, nodeID, sessionID);
@@ -268,10 +267,29 @@ export default function SessionScreen() {
 		[messages, preferences],
 	);
 
-	const listRef = useRef<FlatList<Message>>(null);
-	// 用户手动翻过历史后，流式更新不能把它拽回底部。
-	const userScrolled = useRef(false);
-	const stickToBottom = useRef(true);
+	// 已读水位只在「贴底且内容有更新」时推进，并且节流 5s：
+	// 流式文本每几毫秒就变一次，每次都写 keystore 既费电又没必要。
+	const lastMarkedAt = useRef(0);
+	const markReadNow = useCallback(() => {
+		const now = Date.now();
+		if (now - lastMarkedAt.current < 5_000) return;
+		lastMarkedAt.current = now;
+		markRead(nodeID, sessionID, now);
+	}, [markRead, nodeID, sessionID]);
+
+	// 贴底跟随统一交给 useAutoFollow：用真实内容高度定位，只认手指滚动，
+	// 避免 FlatList 的估算末尾在流式期间把消息流来回拽动。
+	const {
+		listRef,
+		handlers: listHandlers,
+		follow: followLatest,
+		reset: resetFollow,
+	} = useAutoFollow<Message>({
+		following,
+		setFollowing,
+		// 用户自己滚回底部也算看完当前内容，水位继续前进。
+		onAtBottom: markReadNow,
+	});
 
 	// 从通知带 ?form= 进来时停在底部：待处理卡片就在输入框上方，不再把会话拽回顶部。
 	// 用 ref 去重，避免 resync/刷新把已经往上翻历史的人再次拽回底部。
@@ -279,65 +297,21 @@ export default function SessionScreen() {
 	useEffect(() => {
 		if (!deepForm || loading || deepFormHandled.current === deepForm) return;
 		deepFormHandled.current = deepForm;
-		stickToBottom.current = true;
-		setFollowing(true);
-		requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: false }));
-	}, [deepForm, loading, setFollowing]);
-
-	// 已读水位只在「贴底且内容有更新」时推进，并且节流 5s：
-	// 流式文本每几毫秒就变一次，每次都写 keystore 既费电又没必要。
-	const lastMarkedAt = useRef(0);
-	const markReadIfFollowing = useCallback(() => {
-		if (!stickToBottom.current) return;
-		const now = Date.now();
-		if (now - lastMarkedAt.current < 5_000) return;
-		lastMarkedAt.current = now;
-		markRead(nodeID, sessionID, now);
-	}, [markRead, nodeID, sessionID]);
+		followLatest();
+	}, [deepForm, loading, followLatest]);
 
 	// messages 的变化也包括「列表长度不变但文本被增量替换」，只看长度会漏掉
 	// 流式推进；这里的依赖是故意多出来的。
 	// biome-ignore lint/correctness/useExhaustiveDependencies: 需要响应文本内容变化
 	useEffect(() => {
-		if (loading || visibleMessages.length === 0) return;
-		markReadIfFollowing();
-	}, [loading, visibleMessages.length, messages, markReadIfFollowing]);
+		if (loading || visibleMessages.length === 0 || !following) return;
+		markReadNow();
+	}, [loading, visibleMessages.length, messages, following, markReadNow]);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: 切换会话时要重置滚动状态，而不是等 ref 变化
+	// biome-ignore lint/correctness/useExhaustiveDependencies: 切换会话时要重置跟随，而不是等 ref 变化
 	useEffect(() => {
-		userScrolled.current = false;
-		stickToBottom.current = true;
-	}, [nodeID, sessionID]);
-
-	const scrollToLatest = (animated: boolean) => {
-		if (visibleMessages.length === 0) return;
-		listRef.current?.scrollToEnd({ animated });
-	};
-
-	// 内容长高时保持贴底：首次加载直接落在最底部（再往下拉不动），之后只在
-	// 用户本来就贴着底部时才跟随，向上翻历史时保持原位。
-	const handleContentSizeChange = () => {
-		if (visibleMessages.length === 0) return;
-		if (userScrolled.current && !stickToBottom.current) return;
-		// 首屏虚拟列表会分多次测量，无动画地多贴一次底，避免停在半路。
-		scrollToLatest(userScrolled.current);
-		if (!userScrolled.current) {
-			requestAnimationFrame(() => scrollToLatest(false));
-		}
-	};
-
-	const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-		const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-		stickToBottom.current = isNearBottom({
-			offsetY: contentOffset.y,
-			contentHeight: contentSize.height,
-			viewportHeight: layoutMeasurement.height,
-		});
-		// 把跟随状态同步给 useSession：暂停期间的新内容只亮「有新内容」提示。
-		setFollowing(stickToBottom.current);
-		// 滚回底部即视为看完当前内容，水位继续前进。
-		if (stickToBottom.current) markReadIfFollowing();
-	};
+		resetFollow();
+	}, [nodeID, sessionID, resetFollow]);
 
 	useEffect(() => {
 		if (switcherOpen) nodeSessions.refresh();
@@ -348,8 +322,7 @@ export default function SessionScreen() {
 		if (!text) return;
 		setActionError(null);
 		// 主动发言后回到最新一条，即使刚才正在往上翻历史。
-		stickToBottom.current = true;
-		setFollowing(true);
+		followLatest();
 		try {
 			await runSend(
 				() => send(text),
@@ -440,14 +413,7 @@ export default function SessionScreen() {
 						/>
 					)}
 					refreshControl={<RefreshControl refreshing={loading} onRefresh={refresh} />}
-					onContentSizeChange={handleContentSizeChange}
-					onLayout={() => {
-						if (!userScrolled.current) scrollToLatest(false);
-					}}
-					onScroll={handleScroll}
-					onScrollBeginDrag={() => {
-						userScrolled.current = true;
-					}}
+					{...listHandlers}
 					scrollEventThrottle={16}
 					ListFooterComponent={
 						forms.length + permissions.length > 0 ? (
@@ -484,9 +450,8 @@ export default function SessionScreen() {
 						<Pressable
 							style={styles.newContent}
 							onPress={() => {
-								stickToBottom.current = true;
 								jumpToLatest();
-								scrollToLatest(true);
+								followLatest();
 							}}
 						>
 							<Text style={styles.newContentText}>有新内容 ·</Text>
@@ -500,9 +465,8 @@ export default function SessionScreen() {
 					<Pressable
 						accessibilityRole="button"
 						onPress={() => {
-							stickToBottom.current = true;
-							setFollowing(true);
-							scrollToLatest(true);
+							jumpToLatest();
+							followLatest();
 						}}
 					>
 						<Text style={styles.pendingBarText}>

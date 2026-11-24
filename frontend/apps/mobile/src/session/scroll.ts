@@ -20,3 +20,13 @@ export function isNearBottom(
 	const remaining = metrics.contentHeight - (metrics.offsetY + metrics.viewportHeight);
 	return remaining <= threshold;
 }
+
+/**
+ * bottomOffset 返回贴底时应滚动到的偏移。
+ *
+ * 用真实内容高度与视口高度算，而不是 FlatList.scrollToEnd：后者在没有
+ * getItemLayout 的变高列表里按平均行高估算末尾，流式内容变化时会越滚越偏。
+ */
+export function bottomOffset(contentHeight: number, viewportHeight: number): number {
+	return Math.max(0, contentHeight - viewportHeight);
+}

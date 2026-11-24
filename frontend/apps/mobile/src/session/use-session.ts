@@ -85,6 +85,8 @@ export function useSession(
 	state: SessionState | null;
 	/** hasNewBelow 表示跟随已暂停（用户向上翻历史）期间又来了新内容。 */
 	hasNewBelow: boolean;
+	/** following 表示页面当前是否跟随底部；滚动逻辑据此决定是否自动贴底。 */
+	following: boolean;
 	/** setFollowing 由页面在滚动时同步：贴底 true，翻历史 false。 */
 	setFollowing: (following: boolean) => void;
 	/** jumpToLatest 恢复跟随并清掉「有新内容」。 */
@@ -361,6 +363,7 @@ export function useSession(
 		notFound,
 		state,
 		hasNewBelow,
+		following,
 		setFollowing,
 		jumpToLatest,
 	};

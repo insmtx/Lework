@@ -1,17 +1,7 @@
 import type { Message, Session, SessionState } from "@lework/api";
 import type { SubagentView, ToolBlock } from "@lework/tool-view";
 import { type ComponentRef, useEffect, useMemo, useRef, useState } from "react";
-import {
-	FlatList,
-	Modal,
-	type NativeScrollEvent,
-	type NativeSyntheticEvent,
-	Pressable,
-	RefreshControl,
-	ScrollView,
-	Text,
-	View,
-} from "react-native";
+import { FlatList, Modal, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { createClient } from "../../api/client";
@@ -20,6 +10,7 @@ import { MessageRow } from "../../session/message-row";
 import { filterVisibleMessages } from "../../session/messages";
 import { isNearBottom } from "../../session/scroll";
 import { statusColor, statusLabel, statusTone } from "../../session/status";
+import { useAutoFollow } from "../../session/use-auto-follow";
 import { useSession } from "../../session/use-session";
 import { useThemePreference } from "../../theme/theme-context";
 import { useTheme } from "../../theme/use-theme";
@@ -32,16 +23,6 @@ import { useToolStyles } from "./use-tool-styles";
 
 // 子会话可能在打开面板后才创建（执行中），轮询间隔够跟上首个会话又不过度打服务端。
 const CHILD_POLL_MS = 2_000;
-
-/** nearBottom 用同一套阈值判断用户是否还贴着底部。 */
-function nearBottom(event: NativeSyntheticEvent<NativeScrollEvent>): boolean {
-	const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-	return isNearBottom({
-		offsetY: contentOffset.y,
-		contentHeight: contentSize.height,
-		viewportHeight: layoutMeasurement.height,
-	});
-}
 
 /** toolSessionState 把工具状态翻译成会话状态，接不上子会话时也能显示状态条。 */
 function toolSessionState(running: boolean, status: string): SessionState | null {
@@ -245,6 +226,7 @@ function SubagentBody({
 					loading={session.loading}
 					refresh={session.refresh}
 					hasNewBelow={session.hasNewBelow}
+					following={session.following}
 					setFollowing={session.setFollowing}
 					jumpToLatest={session.jumpToLatest}
 					nodeID={nodeID}
@@ -274,6 +256,7 @@ function LiveConversation({
 	loading,
 	refresh,
 	hasNewBelow,
+	following,
 	setFollowing,
 	jumpToLatest,
 	nodeID,
@@ -287,6 +270,7 @@ function LiveConversation({
 	loading: boolean;
 	refresh: () => void;
 	hasNewBelow: boolean;
+	following: boolean;
 	setFollowing: (following: boolean) => void;
 	jumpToLatest: () => void;
 	nodeID: string;
@@ -302,25 +286,10 @@ function LiveConversation({
 		() => filterVisibleMessages(messages, preferences),
 		[messages, preferences],
 	);
-
-	const listRef = useRef<FlatList<Message>>(null);
-	const userScrolled = useRef(false);
-	const stickToBottom = useRef(true);
-
-	const scrollToLatest = (animated: boolean) => {
-		if (visible.length === 0) return;
-		listRef.current?.scrollToEnd({ animated });
-	};
-
-	// 打开时直接落到最底；之后只在用户本来就贴底时跟随，向上翻历史保持原位。
-	const handleContentSizeChange = () => {
-		if (visible.length === 0) return;
-		if (userScrolled.current && !stickToBottom.current) return;
-		scrollToLatest(userScrolled.current);
-		if (!userScrolled.current) {
-			requestAnimationFrame(() => scrollToLatest(false));
-		}
-	};
+	const { listRef, handlers, follow } = useAutoFollow<Message>({
+		following,
+		setFollowing,
+	});
 
 	return (
 		<View style={styles.sheetBody}>
@@ -356,17 +325,7 @@ function LiveConversation({
 						<Text style={styles.muted}>子代理还没有输出。</Text>
 					)
 				}
-				onContentSizeChange={handleContentSizeChange}
-				onLayout={() => {
-					if (!userScrolled.current) scrollToLatest(false);
-				}}
-				onScroll={(event) => {
-					stickToBottom.current = nearBottom(event);
-					setFollowing(stickToBottom.current);
-				}}
-				onScrollBeginDrag={() => {
-					userScrolled.current = true;
-				}}
+				{...handlers}
 				scrollEventThrottle={16}
 			/>
 
@@ -375,9 +334,8 @@ function LiveConversation({
 					<Pressable
 						style={styles.sheetNewContent}
 						onPress={() => {
-							stickToBottom.current = true;
 							jumpToLatest();
-							scrollToLatest(true);
+							follow();
 						}}
 					>
 						<Text style={styles.sheetNewContentText}>有新内容 ·</Text>
@@ -437,7 +395,14 @@ function StaticDetail({
 				if (!userScrolled.current) scrollToLatest(false);
 			}}
 			onScroll={(event) => {
-				stickToBottom.current = nearBottom(event);
+				// 程序化贴底不参与跟随判断；只有用户拖动后才允许关闭跟随。
+				if (!userScrolled.current) return;
+				const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+				stickToBottom.current = isNearBottom({
+					offsetY: contentOffset.y,
+					contentHeight: contentSize.height,
+					viewportHeight: layoutMeasurement.height,
+				});
 			}}
 			onScrollBeginDrag={() => {
 				userScrolled.current = true;

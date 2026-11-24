@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isNearBottom } from "./scroll";
+import { bottomOffset, isNearBottom } from "./scroll";
 
 describe("isNearBottom", () => {
 	it("停在最底部时算贴底", () => {
@@ -17,5 +17,19 @@ describe("isNearBottom", () => {
 
 	it("内容不足一屏时视为贴底", () => {
 		expect(isNearBottom({ offsetY: 0, contentHeight: 120, viewportHeight: 400 })).toBe(true);
+	});
+});
+
+describe("bottomOffset", () => {
+	it("按真实内容高度贴底", () => {
+		expect(bottomOffset(1200, 400)).toBe(800);
+	});
+
+	it("内容不足一屏时停在 0，由 flex-end 负责贴底", () => {
+		expect(bottomOffset(300, 400)).toBe(0);
+	});
+
+	it("空内容不会产生负偏移", () => {
+		expect(bottomOffset(0, 400)).toBe(0);
 	});
 });
