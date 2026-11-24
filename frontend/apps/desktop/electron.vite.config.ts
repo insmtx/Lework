@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
-import desktopPackage from "./package.json";
+import { resolveAppVersion } from "../../scripts/app-version.mjs";
 
 const deploymentMode = process.env.VITE_LEWORK_DEPLOYMENT_MODE ?? "public";
 const legacyAPIBaseURL = process.env.VITE_LEWORK_API_BASE_URL ?? "http://localhost:8080/v1";
@@ -63,7 +63,7 @@ export default defineConfig({
 			},
 		},
 		define: {
-			"import.meta.env.VITE_LEWORK_APP_VERSION": JSON.stringify(desktopPackage.version),
+			"import.meta.env.VITE_LEWORK_APP_VERSION": JSON.stringify(resolveAppVersion()),
 			"import.meta.env.VITE_LEWORK_DEPLOYMENT_MODE": JSON.stringify(deploymentMode),
 			// 打包态由主进程提供同源 /v1；渲染层只用相对地址。
 			"import.meta.env.VITE_LEWORK_API_BASE_URL": JSON.stringify("/v1"),

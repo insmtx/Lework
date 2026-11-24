@@ -1,6 +1,6 @@
 {
 	"name": "@lework/desktop",
-	"version": "0.7.0",
+	"version": "0.0.0",
 	"description": "Lework desktop application",
 	"author": "insmtx",
 	"desktopName": "lework-desktop.desktop",
