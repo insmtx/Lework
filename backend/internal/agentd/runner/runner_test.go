@@ -790,6 +790,7 @@ func TestHelloCapabilitiesIncludeI1BMethods(t *testing.T) {
 		"project.create",
 		"session.diff", "session.interrupt",
 		"session.children",
+		"form.list", "form.global_list", "form.reply", "form.cancel",
 		"file.list", "file.read",
 		"pty.create", "pty.attach", "pty.write", "pty.resize", "pty.close",
 	}
