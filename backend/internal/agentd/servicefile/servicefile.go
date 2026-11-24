@@ -1,5 +1,6 @@
 // Package servicefile publishes the local OpenCode service endpoint owned by
-// the lework agent so a same-user TUI can attach to it.
+// the lework agent so a same-user TUI can attach to it, and reads the endpoint
+// OpenCode itself registered so the agent can attach to the user's service.
 //
 // The file carries the HTTP basic-auth password, so it is written 0600 and its
 // directory 0700. Passwords must never be logged or echoed in errors; callers
@@ -20,6 +21,10 @@ import (
 // fileName is fixed so every lework process on the node agrees on the location
 // without additional discovery.
 const fileName = "opencode-service.json"
+
+// serviceFileName is the registration name OpenCode itself uses under
+// $XDG_STATE_HOME/opencode.
+const serviceFileName = "service.json"
 
 // passwordFileName persists a generated password across agent restarts. A
 // running TUI keeps the password from its own environment, so a fresh value
@@ -158,6 +163,53 @@ func Read() (Info, error) {
 		return Info{}, fmt.Errorf("decode service file %s: invalid service file", path)
 	}
 	return info, nil
+}
+
+// OpenCodeEndpoint is the shared OpenCode service registered by
+// `opencode serve --service`. It is the same endpoint a user TUI talks to;
+// attaching to it is the only way to see that TUI's live session state,
+// because OpenCode's event stream is process-local and never replayed.
+type OpenCodeEndpoint struct {
+	URL      string `json:"url"`
+	Password string `json:"password"`
+	PID      int    `json:"pid"`
+}
+
+// OpenCodePath returns OpenCode's own service registration path. It follows
+// OpenCode's XDG state layout rather than the lework directory so the agent
+// never writes next to the user's service credentials.
+func OpenCodePath() (string, error) {
+	if dir := strings.TrimSpace(os.Getenv("XDG_STATE_HOME")); dir != "" {
+		return filepath.Join(dir, "opencode", serviceFileName), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve home directory for shared opencode service file: %w", err)
+	}
+	return filepath.Join(home, ".local", "state", "opencode", serviceFileName), nil
+}
+
+// ReadOpenCode loads the user's registered service endpoint. A missing file is
+// reported as fs.ErrNotExist so the caller can fall back to a private service
+// without treating "no shared service" as an error.
+func ReadOpenCode() (OpenCodeEndpoint, error) {
+	path, err := OpenCodePath()
+	if err != nil {
+		return OpenCodeEndpoint{}, err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return OpenCodeEndpoint{}, fmt.Errorf("read shared opencode service file %s: %w", path, err)
+	}
+
+	var endpoint OpenCodeEndpoint
+	if err := json.Unmarshal(data, &endpoint); err != nil {
+		return OpenCodeEndpoint{}, fmt.Errorf("decode shared opencode service file %s: %w", path, err)
+	}
+	if strings.TrimSpace(endpoint.URL) == "" || endpoint.Password == "" {
+		return OpenCodeEndpoint{}, fmt.Errorf("decode shared opencode service file %s: missing url or password", path)
+	}
+	return endpoint, nil
 }
 
 // Remove deletes the published endpoint. It is safe to call when the file is

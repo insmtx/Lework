@@ -9,10 +9,12 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -82,41 +84,132 @@ type agentRuntime struct {
 	service  *supervisor.Supervisor
 	handler  *handler.Handler
 	password string
+	// serviceURL 是 client 实际使用的端点。附着用户共享服务时它不等于
+	// 配置里的 loopback 端口，发布给 `lework opencode` 的也必须是它。
+	serviceURL string
 	// opts 是独立的 `lework agent` 传入的连接选项；组合启动保持零值，行为
 	// 与引入配对之前完全一致。
 	opts agentConnectOptions
 }
 
-// buildAgent 解析 OpenCode 环境并装配客户端、监管器与请求处理器。
-// 它只做构造：不连控制面，也不启动子进程。
-func buildAgent(cfg *agentdconfig.Config) (*agentRuntime, error) {
+// agentEndpoint 是本机 OpenCode 服务的选择结果。
+//
+// Attach 为 true 表示服务由用户启动（`opencode serve --service`），agent
+// 只借用它的 HTTP/SSE 接口：不能 spawn、不能 stop、不能改它的注册文件。
+type agentEndpoint struct {
+	URL      string
+	Password string
+	// Env 只用于私有服务的子进程；附着共享服务时为空。
+	Env    []string
+	Attach bool
+}
+
+// 共享服务可能正在开机启动，给它一个有限的等待窗口；超过就回退到私有
+// 服务，避免 agent 永远卡在一个不会出现的端点上。
+const (
+	sharedOpenCodeTimeout        = 5 * time.Second
+	sharedOpenCodePoll           = 250 * time.Millisecond
+	sharedOpenCodeRequestTimeout = 2 * time.Second
+)
+
+// resolveAgentEndpoint 优先借用用户已经运行的 OpenCode 共享服务。
+//
+// OpenCode 的执行状态与事件只存在于进程内：TUI 连的是用户自己的服务，
+// agent 自持的 `serve` 看不到它的会话状态。附着同一个服务后，事件流里
+// 才有 TUI 的会话；同时避免在同一数据库上再起第二个 server。
+//
+// 发现失败一律回退到旧行为（自持 serve + 独立密码），不回退成“无服务”。
+func resolveAgentEndpoint(ctx context.Context, cfg *agentdconfig.Config) (agentEndpoint, error) {
+	shared, err := servicefile.ReadOpenCode()
+	switch {
+	case err == nil:
+		if probeErr := probeSharedOpenCode(ctx, shared); probeErr == nil {
+			logs.Infof("lework-agent: attached to shared opencode service at %s", shared.URL)
+			return agentEndpoint{URL: shared.URL, Password: shared.Password, Attach: true}, nil
+		} else {
+			logs.Warnf("lework-agent: shared opencode service at %s is unavailable, starting a private service: %s",
+				shared.URL, redact(probeErr))
+		}
+	case !errors.Is(err, fs.ErrNotExist):
+		logs.Warnf("lework-agent: read shared opencode service: %s", redact(err))
+	}
+
 	// The password is shared by the client and the child process. It is derived
 	// or generated once here so a generated value reaches opencode through its
 	// environment and never has to be read back from the server output.
 	env, password, err := openCodeEnv(cfg.OpenCode.Env)
 	if err != nil {
+		return agentEndpoint{}, err
+	}
+	return agentEndpoint{
+		URL:      fmt.Sprintf("http://127.0.0.1:%d", cfg.OpenCode.Port),
+		Password: password,
+		Env:      envSlice(env),
+	}, nil
+}
+
+// probeSharedOpenCode 在有限窗口内等待注册的共享服务可用。
+//
+// 401 立即失败：密码不对等再久也不会自愈；其余错误按开机竞态重试。
+func probeSharedOpenCode(ctx context.Context, endpoint servicefile.OpenCodeEndpoint) error {
+	client := opencode.New(
+		endpoint.URL,
+		&http.Client{Timeout: sharedOpenCodeRequestTimeout},
+		opencode.WithPassword(endpoint.Password),
+	)
+	deadline := time.Now().Add(sharedOpenCodeTimeout)
+	for {
+		probeCtx, cancel := context.WithTimeout(ctx, sharedOpenCodeRequestTimeout)
+		err := client.Health(probeCtx)
+		cancel()
+
+		if err == nil {
+			return nil
+		}
+		if errors.Is(err, opencode.ErrUnauthorized) {
+			return err
+		}
+		if time.Now().After(deadline) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(sharedOpenCodePoll):
+		}
+	}
+}
+
+// buildAgent 解析 OpenCode 环境并装配客户端、监管器与请求处理器。
+// 它不连控制面，也不主动启动子进程（服务探测除外）。
+func buildAgent(ctx context.Context, cfg *agentdconfig.Config) (*agentRuntime, error) {
+	endpoint, err := resolveAgentEndpoint(ctx, cfg)
+	if err != nil {
 		return nil, err
 	}
 
 	client := opencode.New(
-		fmt.Sprintf("http://127.0.0.1:%d", cfg.OpenCode.Port),
+		endpoint.URL,
 		http.DefaultClient,
-		opencode.WithPassword(password),
+		opencode.WithPassword(endpoint.Password),
 	)
 	service := supervisor.New(client, nil, supervisor.ServiceConfig{
-		Binary: cfg.OpenCode.Binary,
-		Port:   cfg.OpenCode.Port,
-		Env:    envSlice(env),
-		Dir:    "",
+		Binary:     cfg.OpenCode.Binary,
+		Port:       cfg.OpenCode.Port,
+		Env:        endpoint.Env,
+		Dir:        "",
+		BaseURL:    endpoint.URL,
+		AttachOnly: endpoint.Attach,
 	})
 	requestHandler := handler.New(client, service, handler.WithWorkspaceRoots(cfg.WorkspaceRoots...))
 
 	return &agentRuntime{
-		cfg:      cfg,
-		client:   client,
-		service:  service,
-		handler:  requestHandler,
-		password: password,
+		cfg:        cfg,
+		client:     client,
+		service:    service,
+		handler:    requestHandler,
+		password:   endpoint.Password,
+		serviceURL: endpoint.URL,
 	}, nil
 }
 
@@ -170,10 +263,14 @@ func (a *agentRuntime) publishService() {
 	if a == nil || a.cfg == nil {
 		return
 	}
+	port := 0
+	if parsed, err := url.Parse(a.serviceURL); err == nil {
+		port, _ = strconv.Atoi(parsed.Port())
+	}
 	info := servicefile.Info{
-		URL:      fmt.Sprintf("http://127.0.0.1:%d", a.cfg.OpenCode.Port),
+		URL:      a.serviceURL,
 		Password: a.password,
-		Port:     a.cfg.OpenCode.Port,
+		Port:     port,
 		PID:      os.Getpid(),
 	}
 	if err := servicefile.Write(info); err != nil {
@@ -226,7 +323,7 @@ func runAgent(ctx context.Context, configPath string, opts agentConnectOptions) 
 		logs.Infof("lework-agent: --reset removed local pairing state at %s", opts.CredentialPath)
 	}
 
-	runtime, err := buildAgent(cfg)
+	runtime, err := buildAgent(ctx, cfg)
 	if err != nil {
 		return err
 	}

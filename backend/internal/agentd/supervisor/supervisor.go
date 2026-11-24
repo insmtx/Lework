@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -51,6 +52,13 @@ type ServiceConfig struct {
 	Env []string
 	// Dir is the child's working directory; empty inherits the agent's.
 	Dir string
+	// BaseURL overrides the loopback address derived from Port. It is set when
+	// the agent attaches to a service the user started, so health checks and
+	// status report the real endpoint.
+	BaseURL string
+	// AttachOnly forbids spawning. The service belongs to the user, and a
+	// second server on the same database could disturb their sessions.
+	AttachOnly bool
 }
 
 // Status is a snapshot of the supervisor's view of the service.
@@ -93,7 +101,10 @@ func New(client HealthChecker, spawner Spawner, cfg ServiceConfig) *Supervisor {
 		spawner = ExecSpawner{}
 	}
 
-	baseURL := fmt.Sprintf("http://%s:%d", serviceHost, cfg.Port)
+	baseURL := strings.TrimRight(cfg.BaseURL, "/")
+	if baseURL == "" {
+		baseURL = fmt.Sprintf("http://%s:%d", serviceHost, cfg.Port)
+	}
 	return &Supervisor{
 		client:         client,
 		spawner:        spawner,
@@ -169,6 +180,13 @@ func (s *Supervisor) ensureLocked(ctx context.Context) (Status, error) {
 	// closed instead of treating the 401 as an unhealthy service.
 	if errors.Is(healthErr, opencode.ErrUnauthorized) {
 		return Status{}, s.rejectUnauthorized(ctx, healthErr)
+	}
+
+	// Attach-only services belong to the user. Spawning here would start a
+	// second server on the same database while theirs is merely unreachable,
+	// which can disturb the sessions we are trying not to touch.
+	if s.cfg.AttachOnly {
+		return Status{}, fmt.Errorf("agentd: external opencode service at %s is unavailable: %w", s.baseURL, healthErr)
 	}
 
 	// A tracked process exists but is not answering yet (still booting, or it

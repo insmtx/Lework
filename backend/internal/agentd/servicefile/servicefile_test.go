@@ -181,3 +181,54 @@ func TestPathFallsBackToHome(t *testing.T) {
 		t.Fatalf("Path() = %q, want %q", path, want)
 	}
 }
+
+func TestReadOpenCodePassesThroughSharedService(t *testing.T) {
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	dir := filepath.Join(stateHome, "opencode")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatalf("create opencode state dir: %v", err)
+	}
+	payload := `{"id":"svc","version":"2.2.7","url":"http://127.0.0.1:49374","pid":42,` +
+		`"password":"shared-secret"}`
+	if err := os.WriteFile(filepath.Join(dir, "service.json"), []byte(payload), 0o600); err != nil {
+		t.Fatalf("write opencode service file: %v", err)
+	}
+
+	got, err := ReadOpenCode()
+	if err != nil {
+		t.Fatalf("ReadOpenCode() error = %v", err)
+	}
+	if got.URL != "http://127.0.0.1:49374" || got.Password != "shared-secret" {
+		t.Fatalf("ReadOpenCode() = %+v, want the registered endpoint", got)
+	}
+	if got.PID != 42 {
+		t.Fatalf("ReadOpenCode().PID = %d, want 42", got.PID)
+	}
+}
+
+func TestReadOpenCodeMissingFileIsNotExist(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+
+	if _, err := ReadOpenCode(); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("ReadOpenCode() error = %v, want fs.ErrNotExist", err)
+	}
+}
+
+// 老版本只写密码、不写 URL；这种文件不能拿来 attach，必须当成不可用，
+// 否则 agent 会拿空地址去健康检查。
+func TestReadOpenCodeRejectsMissingURL(t *testing.T) {
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	dir := filepath.Join(stateHome, "opencode")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatalf("create opencode state dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "service.json"), []byte(`{"password":"secret"}`), 0o600); err != nil {
+		t.Fatalf("write opencode service file: %v", err)
+	}
+
+	if _, err := ReadOpenCode(); err == nil {
+		t.Fatal("ReadOpenCode() error = nil, want invalid endpoint error")
+	}
+}

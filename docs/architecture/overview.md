@@ -35,7 +35,7 @@ Lework 重构为**单用户、本地优先的 OpenCode 多节点控制面**：
 | D9 | 多租户 | 不实现 | 目标用户是个人；单用户本地控制面 |
 | D10 | Spark | agent 通过 USB-C 虚拟网卡出站 | 与普通节点同一套协议 |
 | D11 | SSH | 不是产品路径 | 避免 SSH 配置、密钥、端口和权限问题 |
-| D12 | OpenCode 服务形态 | I0：agent 自持普通 `serve` + 生成密码；I1 再设计 TUI 共享 | TUI 共享仍是目标，但 `--service` 忽略密码环境变量且会顶掉用户服务，需先做发现/XDG 隔离 |
+| D12 | OpenCode 服务形态 | agent 优先附着用户已注册的共享 `opencode serve --service`（只读 `$XDG_STATE_HOME/opencode/service.json`，永不 spawn）；发现不到时回退自持普通 `serve` + 生成密码 | OpenCode 的执行状态与事件只存在于进程内，附着同一服务才能看到 TUI 的实时状态；在同一 DB 上起第二个 server 反而会干扰用户会话 |
 | D13 | 目标节点仓库 | agent 维护 per-remote 裸仓库缓存 | 目标节点不需要预先 clone 项目 |
 | D14 | 配置重启 | 有活跃 Session 时默认拒绝/排队 | 避免应用配置误杀正在执行的任务 |
 | D15 | 合并策略 | 先生成结果 ref/临时分支，再显式合并 | 不默认修改 A 的当前工作区 |
@@ -149,27 +149,33 @@ OS service manager (systemd / launchd / Windows Service)
 ```
 
 - 系统服务管理器只负责 agent 常驻；
-- I0 由 agent 自持一个普通 `opencode serve`，只绑定回环，并用每进程生成（或
-  运维显式配置）的密码同时配置 client 与子进程环境；agent 不写用户级
-  `--service` 注册，避免顶掉用户的 TUI 服务；
+- **附着优先**：启动时读取 OpenCode 自己的注册文件
+  `$XDG_STATE_HOME/opencode/service.json`（缺省
+  `~/.local/state/opencode/service.json`），用其中的 `url` 与 `password`
+  做健康探测（最多等 5 秒，401 立即失败）。成功则 agent 只借用这个服务的
+  HTTP/SSE 接口：`supervisor.AttachOnly` 保证**永不 spawn**，`stop/restart`
+  对本机服务是 no-op，agent 也不写、不删用户注册文件；
+- **回退**：注册文件缺失、不可读、密码被拒或服务不可达时，回到自持一个普通
+  `opencode serve`，只绑定回环，并用每进程生成（或运维显式配置）的密码同时
+  配置 client 与子进程环境；
+- 附着模式下 `lework opencode` 发布的端点就是共享服务地址，TUI 因此连回同一个
+  进程；
 - agent 优先接管端口上已健康的实例（含认证通过），不存在时才启动；
 - agent 崩溃由系统服务管理器拉起；agent 恢复后重新发现/接管服务；
-- **TUI 共享是目标而非 I0 交付**：`opencode serve --service` 忽略
-  `OPENCODE_SERVER_PASSWORD`、使用 `$XDG_CONFIG_HOME/opencode/service.json`
-  的密码，并且同一 XDG 目录下换端口启动会替换并停掉已有实例。因此 TUI attach
-  需要先设计服务发现、XDG 隔离与密码交换，推迟到 I1；
-- 若 I0 证明单服务无法隔离并发项目，agent 的 supervisor 接口允许切换为 per-project 进程池；默认仍为共享服务。
+- **v1 只在启动时发现**：共享服务重启换了端口或密码后不会热追，需要重启
+  `lework agent`；控制面对共享服务的「重启/停止 OpenCode」不生效；
+- 若单服务无法隔离并发项目，agent 的 supervisor 接口允许切换为 per-project 进程池；默认仍为共享服务。
 
 #### TUI 与外部 Session
 
-- **I0 现状**：agent 使用自持的普通 `serve` 和独立密码，用户的 TUI 默认连接的是
-  它自己的服务，因此 TUI 暂时看不到 agent 的 Session；这是为绕开
-  `--service` 的密码/注册冲突而做的阶段性取舍；
-- **目标（I1）**：完成服务发现、XDG 隔离与密码交换后，让 TUI 与 Lework 连接
-  同一个服务；届时 Lework 能看到 TUI 的 Session、事件和审批；
+- **现状**：用户在终端跑 `opencode serve --service`（或任何注册了服务的 TUI）时，
+  agent 附着同一个服务，Lework 因此能看到 TUI 的 Session、执行状态、事件和审批；
+  agent 自持服务仅在没有可附着的共享服务时出现；
+- 附着失败（服务不可达、密码被拒、注册文件属于别的 OS 用户）自动回退，不影响
+  用户 TUI；
 - 如果 TUI 使用 `--standalone` 或指向另一个 server，Lework 只能看到持久化历史，不能接管实时事件；
 - 该场景在 UI 标记为「外部独立服务 / 只读」，恢复前需要用户让 TUI 连回共享服务；
-- 不在同一 DB 上启动第二个 server，避免锁与跨项目污染。
+- 永远不在同一 DB 上启动第二个 server，避免锁与跨项目污染。
 
 #### agent 配置（Linux 示例）
 
