@@ -407,7 +407,8 @@ lework opencode /home/me/projects
 
 旧的扁平 `agent.yaml`（顶层直接写 `control_plane_url` 等）仍然可用。
 
-`workspace_roots` 限制可创建会话和读取文件的目录；所有路径参数必须是绝对
+`workspace_roots` 限制可创建会话和读取文件的目录，但节点 OpenCode 里已存在
+的项目目录也允许——用户可以在客户端显式选择历史项目。所有路径参数必须是绝对
 路径，文件读取和 PTY 都会在 Agent 侧做边界校验。节点掉线后，控制面的请求
 返回 `409 node_offline`，浏览器可稍后重试。
 

@@ -805,7 +805,7 @@ v1 不做通用 OpenCode 代理端点；浏览器只能访问上述显式 API。
 
 - Git、配置、插件安装都由 agent 执行；
 - 命令参数化，不做字符串拼接；
-- 只允许 `workspace_roots` 内的路径；
+- 只允许 `workspace_roots` 内的路径，或该节点 OpenCode 已有的项目目录；
 - 高风险操作（merge、删除 worktree、应用配置、重启 OpenCode）需要显式确认；
 - 不提供任意远程 shell 给浏览器；
 - agent 以普通用户运行，systemd 做最小权限加固。

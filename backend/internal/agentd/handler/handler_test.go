@@ -780,6 +780,48 @@ func TestSessionCreateRejectsOutsideWorkspaceRoot(t *testing.T) {
 	}
 }
 
+func TestSessionCreateAllowsExistingProjectOutsideWorkspaceRoot(t *testing.T) {
+	root := t.TempDir()
+	project := t.TempDir()
+	oc := &fakeOpenCode{
+		projects:      []opencode.Project{{ID: "abc", Canonical: project}},
+		createSession: opencode.Session{ID: "ses_new"},
+	}
+	h := New(oc, fakeSupervisor{}, WithWorkspaceRoots(root))
+
+	// The project cache starts empty, so this also covers the lazy refresh.
+	params, err := json.Marshal(SessionCreateParams{Directory: project})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.Handle(context.Background(), "session.create", params); err != nil {
+		t.Fatalf("Handle() error = %v, want nil for an existing project", err)
+	}
+	if oc.createdDirectory != project {
+		t.Fatalf("directory = %q, want %q", oc.createdDirectory, project)
+	}
+	if oc.projectsCalls != 1 {
+		t.Fatalf("project.list calls = %d, want 1", oc.projectsCalls)
+	}
+
+	// The refreshed cache must be reused instead of listing projects again.
+	if _, err := h.Handle(context.Background(), "session.create", params); err != nil {
+		t.Fatalf("second Handle() error = %v", err)
+	}
+	if oc.projectsCalls != 1 {
+		t.Fatalf("project.list calls = %d, want the cached set reused", oc.projectsCalls)
+	}
+
+	// Only the exact project root is allowed; a child directory stays outside.
+	nested, err := json.Marshal(SessionCreateParams{Directory: filepath.Join(project, "nested")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.Handle(context.Background(), "session.create", nested); err == nil {
+		t.Fatal("expected a project child directory to stay confined")
+	}
+}
+
 func TestSessionCreateRejectsEmptyDirectoryWithWorkspaceRoots(t *testing.T) {
 	oc := &fakeOpenCode{}
 	h := New(oc, fakeSupervisor{}, WithWorkspaceRoots(t.TempDir()))
@@ -1184,13 +1226,13 @@ func TestConfinePath(t *testing.T) {
 	root := t.TempDir()
 	h := New(&fakeOpenCode{}, fakeSupervisor{}, WithWorkspaceRoots(root))
 
-	if _, err := h.confinePath(root, "../x"); err == nil {
+	if _, err := h.confinePath(context.Background(), root, "../x"); err == nil {
 		t.Fatal("expected traversal rejection")
 	}
-	if _, err := h.confinePath(root, "/etc/passwd"); err == nil {
+	if _, err := h.confinePath(context.Background(), root, "/etc/passwd"); err == nil {
 		t.Fatal("expected absolute outside rejection")
 	}
-	got, err := h.confinePath(root, "sub/file.txt")
+	got, err := h.confinePath(context.Background(), root, "sub/file.txt")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -182,7 +182,7 @@ opencode:
 ./bundles/lework agent --config /etc/lework/agent.yaml
 ```
 
-`workspace_roots` restricts where sessions can be created and files can be read. Full protocol and troubleshooting: [Control plane operations](docs/operations/control-plane.md).
+`workspace_roots` restricts where sessions can be created and files can be read. Project directories that already exist in this node's OpenCode are also accepted when the user picks one explicitly. Full protocol and troubleshooting: [Control plane operations](docs/operations/control-plane.md).
 
 ## Development Guide
 
