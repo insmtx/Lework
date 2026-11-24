@@ -374,12 +374,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: mac-arm64
-            os: macos-15
-            command: dist:desktop:mac:arm64
-          - name: mac-x64
-            os: macos-15-intel
-            command: dist:desktop:mac:x64
+          # macOS runner 排队时间过长，暂时停用；恢复时取消下面两段注释即可。
+          # - name: mac-arm64
+          #   os: macos-15
+          #   command: dist:desktop:mac:arm64
+          # - name: mac-x64
+          #   os: macos-15-intel
+          #   command: dist:desktop:mac:x64
           - name: win-x64
             os: windows-latest
             command: dist:desktop:win:x64
