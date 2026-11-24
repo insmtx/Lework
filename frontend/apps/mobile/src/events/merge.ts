@@ -42,7 +42,20 @@ function sortNodes(nodes: OverviewNode[]): OverviewNode[] {
 }
 
 export function createOverviewState(nodes: OverviewNode[] = []): OverviewState {
-	return { nodes: sortNodes(nodes), seen: {} };
+	return {
+		// 旧控制面不返回 pending_forms；先归一成 0，后续增量不必到处判空。
+		nodes: sortNodes(
+			nodes.map((node) => ({
+				...node,
+				pending_forms: node.pending_forms ?? 0,
+				sessions: node.sessions.map((session) => ({
+					...session,
+					pending_forms: session.pending_forms ?? 0,
+				})),
+			})),
+		),
+		seen: {},
+	};
 }
 
 function permissionIDOf(data: unknown): string | null {
@@ -55,6 +68,22 @@ function titleOf(data: unknown): string | null {
 	if (!data || typeof data !== "object") return null;
 	const title = (data as { title?: unknown }).title;
 	return typeof title === "string" && title !== "" ? title : null;
+}
+
+/** formIDOf 解析表单 ID：created 在 data.form.id，其余事件在 data.id。 */
+function formIDOf(event: ControlEvent): string | null {
+	if (!event.data || typeof event.data !== "object") return null;
+	const data = event.data as { id?: unknown; form?: unknown };
+	if (event.type === "form.created") {
+		if (!data.form || typeof data.form !== "object") return null;
+		const id = (data.form as { id?: unknown }).id;
+		return typeof id === "string" && id !== "" ? id : null;
+	}
+	return typeof data.id === "string" && data.id !== "" ? data.id : null;
+}
+
+function formKey(nodeID: string, sessionID: string, formID: string): string {
+	return `${nodeID}${SEP}${sessionID}${SEP}form${SEP}${formID}`;
 }
 
 function dropSeen(seen: Record<string, true>, prefix: string): void {
@@ -87,10 +116,39 @@ export function applyEvent(state: OverviewState, event: ControlEvent): OverviewS
 		dropSeen(seen, prefix);
 		return {
 			nodes: state.nodes.map((node) =>
-				node.node_id === event.node_id ? { ...node, sessions: [] } : node,
+				node.node_id === event.node_id ? { ...node, sessions: [], pending_forms: 0 } : node,
 			),
 			seen,
 		};
+	}
+
+	// global 表单不属于任何会话，只能计在节点上；必须在 session_id 早退前处理。
+	if (event.session_id === "global" && event.type.startsWith("form.")) {
+		const seen = { ...state.seen };
+		const nodes = state.nodes.map(cloneNode);
+		let node = nodes.find((candidate) => candidate.node_id === event.node_id);
+		if (!node) {
+			node = {
+				node_id: event.node_id,
+				name: event.node_id,
+				connected: false,
+				pending_forms: 0,
+				sessions: [],
+			};
+			nodes.push(node);
+		}
+		const formID = formIDOf(event);
+		const key = formKey(event.node_id, "global", formID ?? "");
+		if (event.type === "form.created") {
+			if (formID && !seen[key]) {
+				seen[key] = true;
+				node.pending_forms = (node.pending_forms ?? 0) + 1;
+			}
+		} else {
+			if (formID) delete seen[key];
+			node.pending_forms = Math.max(0, (node.pending_forms ?? 0) - 1);
+		}
+		return { nodes: sortNodes(nodes), seen };
 	}
 
 	if (!event.session_id) return state;
@@ -101,7 +159,13 @@ export function applyEvent(state: OverviewState, event: ControlEvent): OverviewS
 
 	let node = nodes.find((candidate) => candidate.node_id === event.node_id);
 	if (!node) {
-		node = { node_id: event.node_id, name: event.node_id, connected: false, sessions: [] };
+		node = {
+			node_id: event.node_id,
+			name: event.node_id,
+			connected: false,
+			pending_forms: 0,
+			sessions: [],
+		};
 		nodes.push(node);
 	}
 
@@ -111,6 +175,7 @@ export function applyEvent(state: OverviewState, event: ControlEvent): OverviewS
 			session_id: event.session_id,
 			state: "running",
 			pending_permissions: 0,
+			pending_forms: 0,
 			last_activity: at,
 		};
 		node.sessions.push(session);
@@ -138,7 +203,31 @@ export function applyEvent(state: OverviewState, event: ControlEvent): OverviewS
 			// 没有 ID 的回复无法精确扣减，但也不能让计数卡住；
 			// 下一次快照会给出权威值。
 			session.pending_permissions = Math.max(0, session.pending_permissions - 1);
-			session.state = session.pending_permissions > 0 ? "waiting_permission" : "running";
+			session.state =
+				session.pending_permissions + (session.pending_forms ?? 0) > 0
+					? "waiting_permission"
+					: "running";
+			break;
+		}
+
+		case "form.created": {
+			const formID = formIDOf(event);
+			if (formID && !seen[formKey(event.node_id, event.session_id, formID)]) {
+				seen[formKey(event.node_id, event.session_id, formID)] = true;
+				session.pending_forms = (session.pending_forms ?? 0) + 1;
+			}
+			session.state = "waiting_permission";
+			break;
+		}
+
+		case "form.replied":
+		case "form.cancelled": {
+			const formID = formIDOf(event);
+			if (formID) delete seen[formKey(event.node_id, event.session_id, formID)];
+			session.pending_forms = Math.max(0, (session.pending_forms ?? 0) - 1);
+			if (session.pending_permissions + session.pending_forms <= 0) {
+				session.state = "running";
+			}
 			break;
 		}
 
@@ -146,6 +235,7 @@ export function applyEvent(state: OverviewState, event: ControlEvent): OverviewS
 		case "session.execution.succeeded":
 		case "session.execution.interrupted":
 			session.pending_permissions = 0;
+			session.pending_forms = 0;
 			dropSeen(seen, `${event.node_id}${SEP}${event.session_id}${SEP}`);
 			session.state = applyState(session, event.type);
 			break;

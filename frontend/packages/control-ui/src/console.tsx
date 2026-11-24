@@ -8,12 +8,15 @@ import { useControlApi } from "./context";
 import { LatestRequestMap } from "./latest-request";
 import type {
 	ControlEvent,
+	FormAnswerValue,
 	Message,
 	NodeHealth,
 	NodeView,
+	PendingForm,
 	PermissionRequest,
 	Session,
 } from "./types";
+import { parseForm } from "./types";
 import { useControlEvents } from "./use-control-events";
 
 type LifecycleAction = "start" | "restart" | "stop";
@@ -106,8 +109,11 @@ export function ControlConsole({
 	const [loadingOlder, setLoadingOlder] = useState(false);
 	const [permissions, setPermissions] = useState<PermissionRequest[]>([]);
 	const [permissionsRefresh, setPermissionsRefresh] = useState(0);
+	const [forms, setForms] = useState<PendingForm[]>([]);
+	const [formsRefresh, setFormsRefresh] = useState(0);
 	// 全局（跨会话）待审批项：手机上看不到别的会话，列表徽标是唯一入口。
 	const [pendingBySession, setPendingBySession] = useState<Record<string, string[]>>({});
+	const [pendingFormsBySession, setPendingFormsBySession] = useState<Record<string, string[]>>({});
 	const [sending, setSending] = useState(false);
 	const [interrupting, setInterrupting] = useState(false);
 	// 手机端单栏：先在节点/会话列表，选中会话后切到会话面板；桌面端忽略该状态。
@@ -259,10 +265,51 @@ export function ControlConsole({
 		};
 	}, [selectedNodeID, selectedSessionID, permissionsRefresh]);
 
+	// 事件没有重放：选中会话先用表单快照补齐，再把事件新增的卡片并入。
+	// 旧控制面/旧节点没有该端点时按空表单处理，不影响会话本身。
+	// biome-ignore lint/correctness/useExhaustiveDependencies: formsRefresh forces a refetch
+	useEffect(() => {
+		if (!selectedNodeID || !selectedSessionID) {
+			setForms([]);
+			return;
+		}
+		let cancelled = false;
+		const sessionID = selectedSessionID;
+		client
+			.listPendingForms(selectedNodeID, sessionID)
+			.then((snapshot) => {
+				if (cancelled) return;
+				setForms((current) => {
+					// 快照是权威列表；保留请求期间到达的事件卡片，避免漏掉新表单。
+					const merged = new Map(current.map((item) => [item.id, item]));
+					for (const item of snapshot) merged.set(item.id, item);
+					const list = [...merged.values()];
+					setPendingFormsBySession((previous) => {
+						const ids = list.map((item) => item.id);
+						if (ids.length === 0) {
+							if (!(sessionID in previous)) return previous;
+							const next = { ...previous };
+							delete next[sessionID];
+							return next;
+						}
+						return { ...previous, [sessionID]: ids };
+					});
+					return list;
+				});
+			})
+			.catch(() => {
+				// 旧版节点没有表单接口时降级为纯事件模式，不阻塞会话。
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [selectedNodeID, selectedSessionID, formsRefresh]);
+
 	// 切换会话时清空旧消息；分页游标不能跨会话复用。
 	// biome-ignore lint/correctness/useExhaustiveDependencies: reset history when the selection changes
 	useEffect(() => {
 		setMessages([]);
+		setForms([]);
 		setNextCursor(null);
 		setLoadingOlder(false);
 	}, [selectedNodeID, selectedSessionID]);
@@ -323,6 +370,35 @@ export function ControlConsole({
 	}, []);
 
 	const handleEvent = (event: ControlEvent) => {
+		if (event.type.startsWith("form.")) {
+			if (event.type === "form.created") {
+				const form = parseForm(event);
+				if (!form) return;
+				// global 表单不属于任何会话，由节点视图处理，不进入会话卡片。
+				if (form.session_id === "global") return;
+				const sessionID = form.session_id;
+				setPendingFormsBySession((current) => {
+					const ids = current[sessionID] ?? [];
+					if (ids.includes(form.id)) return current;
+					return { ...current, [sessionID]: [...ids, form.id] };
+				});
+				if (sessionID === selectedSessionID) {
+					setForms((current) =>
+						current.some((item) => item.id === form.id) ? current : [...current, form],
+					);
+				}
+				return;
+			}
+			const raised =
+				event.data && typeof event.data === "object"
+					? (event.data as { id?: string }).id
+					: undefined;
+			if (raised) {
+				setPendingFormsBySession((current) => removePending(current, raised));
+				setForms((current) => current.filter((item) => item.id !== raised));
+			}
+			return;
+		}
 		if (event.type === "permission.asked") {
 			const permission = permissionFromEvent(event);
 			if (!permission) return;
@@ -370,6 +446,7 @@ export function ControlConsole({
 		setSessionsRefresh((value) => value + 1);
 		setMessagesRefresh((value) => value + 1);
 		setPermissionsRefresh((value) => value + 1);
+		setFormsRefresh((value) => value + 1);
 	}, [refreshNodes]);
 
 	const { connected } = useControlEvents(handleEvent, resync);
@@ -425,6 +502,7 @@ export function ControlConsole({
 		setSessionDirectory(initialDirectory ?? "");
 		setMessages([]);
 		setPermissions([]);
+		setForms([]);
 		setMobilePane("list");
 	};
 
@@ -490,6 +568,7 @@ export function ControlConsole({
 			setSelectedSessionID(null);
 			setMessages([]);
 			setPermissions([]);
+			setForms([]);
 			setMobilePane("list");
 		}
 		setSessionsRefresh((value) => value + 1);
@@ -538,6 +617,33 @@ export function ControlConsole({
 		setMessagesRefresh((value) => value + 1);
 	};
 
+	const replyForm = async (form: PendingForm, answer: Record<string, FormAnswerValue>) => {
+		if (!selectedNodeID || !selectedSessionID) throw new Error("No session selected");
+		try {
+			await client.replyForm(selectedNodeID, selectedSessionID, form.id, answer);
+		} catch (caught) {
+			// 失败后重拉，避免本地卡片与 OpenCode 的真实状态分叉。
+			setFormsRefresh((value) => value + 1);
+			throw caught;
+		}
+		setForms((current) => current.filter((item) => item.id !== form.id));
+		setPendingFormsBySession((current) => removePending(current, form.id));
+		setMessagesRefresh((value) => value + 1);
+	};
+
+	const cancelForm = async (form: PendingForm) => {
+		if (!selectedNodeID || !selectedSessionID) throw new Error("No session selected");
+		try {
+			await client.cancelForm(selectedNodeID, selectedSessionID, form.id);
+		} catch (caught) {
+			setFormsRefresh((value) => value + 1);
+			throw caught;
+		}
+		setForms((current) => current.filter((item) => item.id !== form.id));
+		setPendingFormsBySession((current) => removePending(current, form.id));
+		setMessagesRefresh((value) => value + 1);
+	};
+
 	const runLifecycle = async (action: LifecycleAction) => {
 		if (!selectedNodeID) return;
 		setLifecycleBusy(action);
@@ -563,6 +669,7 @@ export function ControlConsole({
 		setSessionsRefresh((value) => value + 1);
 		setMessagesRefresh((value) => value + 1);
 		setPermissionsRefresh((value) => value + 1);
+		setFormsRefresh((value) => value + 1);
 	};
 
 	// 会话级待审批数量：列表徽标与手机端头部计数都从这里取。
@@ -571,8 +678,11 @@ export function ControlConsole({
 		for (const [sessionID, ids] of Object.entries(pendingBySession)) {
 			if (ids.length > 0) counts[sessionID] = ids.length;
 		}
+		for (const [sessionID, ids] of Object.entries(pendingFormsBySession)) {
+			if (ids.length > 0) counts[sessionID] = (counts[sessionID] ?? 0) + ids.length;
+		}
 		return counts;
-	}, [pendingBySession]);
+	}, [pendingBySession, pendingFormsBySession]);
 
 	const topError = nodesError || sessionsError || messagesError;
 
@@ -609,12 +719,15 @@ export function ControlConsole({
 			session={selectedSession}
 			messages={messages}
 			permissions={permissions}
+			forms={forms}
 			streamConnected={connected}
 			loadingMessages={messagesLoading}
 			sending={sending}
 			interrupting={interrupting}
 			onSend={send}
 			onInterrupt={interrupt}
+			onSubmitForm={replyForm}
+			onCancelForm={cancelForm}
 			onResolvePermission={resolvePermission}
 			onRefresh={refresh}
 			hasOlder={Boolean(nextCursor)}

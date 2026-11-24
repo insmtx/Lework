@@ -16,7 +16,14 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { nodeColorStyle } from "../node-colors";
-import type { Message, NodeView, PermissionRequest, Session } from "../types";
+import type {
+	FormAnswerValue,
+	Message,
+	NodeView,
+	PendingForm,
+	PermissionRequest,
+	Session,
+} from "../types";
 import { Conversation } from "./conversation";
 import { DiffView } from "./diff-view";
 import { FileBrowser } from "./file-browser";
@@ -29,12 +36,15 @@ interface SessionPanelProps {
 	session: Session | null;
 	messages: Message[];
 	permissions: PermissionRequest[];
+	forms: PendingForm[];
 	streamConnected: boolean;
 	loadingMessages: boolean;
 	sending: boolean;
 	interrupting: boolean;
 	onSend: (text: string) => Promise<void>;
 	onInterrupt: () => Promise<void>;
+	onSubmitForm: (form: PendingForm, answer: Record<string, FormAnswerValue>) => Promise<void>;
+	onCancelForm: (form: PendingForm) => Promise<void>;
 	onResolvePermission: (
 		permission: PermissionRequest,
 		decision: "once" | "always" | "reject",
@@ -59,12 +69,15 @@ export function SessionPanel({
 	session,
 	messages,
 	permissions,
+	forms,
 	streamConnected,
 	loadingMessages,
 	sending,
 	interrupting,
 	onSend,
 	onInterrupt,
+	onSubmitForm,
+	onCancelForm,
 	onResolvePermission,
 	onRefresh,
 	hasOlder,
@@ -133,7 +146,10 @@ export function SessionPanel({
 								className="max-w-24 shrink-0 gap-1.5 truncate md:max-w-40"
 							>
 								{nodeStyle ? (
-									<span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", nodeStyle.dot)} />
+									<span
+										aria-hidden
+										className={cn("size-1.5 shrink-0 rounded-full", nodeStyle.dot)}
+									/>
 								) : null}
 								<span className="truncate">{node?.name ?? "unknown node"}</span>
 							</Badge>
@@ -222,8 +238,11 @@ export function SessionPanel({
 				<Conversation
 					messages={messages}
 					permissions={permissions}
+					forms={forms}
 					onSend={onSend}
 					onInterrupt={onInterrupt}
+					onSubmitForm={onSubmitForm}
+					onCancelForm={onCancelForm}
 					onResolvePermission={onResolvePermission}
 					sending={sending}
 					interrupting={interrupting}

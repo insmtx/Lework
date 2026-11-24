@@ -94,7 +94,7 @@ function RootNavigator() {
 						<Stack.Screen name="index" options={{ headerShown: false }} />
 						<Stack.Screen name="projects" options={{ title: "项目" }} />
 						<Stack.Screen name="projects/[key]" options={{ title: "项目" }} />
-						<Stack.Screen name="pending" options={{ title: "待审批" }} />
+						<Stack.Screen name="pending" options={{ title: "待处理" }} />
 						<Stack.Screen name="nodes" options={{ title: "我的电脑" }} />
 						<Stack.Screen name="nodes/add" options={{ title: "添加电脑" }} />
 						<Stack.Screen name="node/pair" options={{ headerShown: false }} />
@@ -106,6 +106,7 @@ function RootNavigator() {
 						<Stack.Screen name="login" options={{ title: "登录", headerShown: false }} />
 						<Stack.Screen name="settings/account" options={{ title: "账号" }} />
 						<Stack.Screen name="session/[node]/[id]" options={{ headerShown: false }} />
+						<Stack.Screen name="forms/[node]/[id]" options={{ title: "全局表单" }} />
 					</Stack>
 					{/* 更新 Modal 放在导航之外：任何页面都会覆盖，路由切换不打断下载提示。 */}
 					<UpdateGate />

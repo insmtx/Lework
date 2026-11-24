@@ -262,6 +262,66 @@ func (e *Event) UnmarshalJSON(data []byte) error {
 		if err := json.Unmarshal(wire.Data, &meta); err == nil {
 			e.SessionID = meta.SessionID
 		}
+		// form.* 把会话归属放在 data.form.sessionID；没有这层 fallback，
+		// 控制面收到的表单事件没有 session，推送与按会话过滤都会失效。
+		if e.SessionID == "" {
+			var formMeta struct {
+				Form struct {
+					SessionID string `json:"sessionID"`
+				} `json:"form"`
+			}
+			if err := json.Unmarshal(wire.Data, &formMeta); err == nil {
+				e.SessionID = formMeta.Form.SessionID
+			}
+		}
 	}
 	return nil
+}
+
+// FormOption 是 string / multiselect 字段的一个可选项。
+type FormOption struct {
+	Value       string `json:"value"`
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
+}
+
+// FormWhen 描述字段的显示条件；全部满足时字段才 active。
+type FormWhen struct {
+	Key   string `json:"key"`
+	Op    string `json:"op"` // eq | neq
+	Value any    `json:"value"`
+}
+
+// FormField 是一个表单字段。不同 type 只使用其中一部分字段。
+type FormField struct {
+	Key         string       `json:"key"`
+	Type        string       `json:"type"`
+	Title       string       `json:"title,omitempty"`
+	Description string       `json:"description,omitempty"`
+	Required    bool         `json:"required,omitempty"`
+	Hidden      bool         `json:"hidden,omitempty"`
+	When        []FormWhen   `json:"when,omitempty"`
+	Format      string       `json:"format,omitempty"`
+	Placeholder string       `json:"placeholder,omitempty"`
+	MinLength   *int         `json:"minLength,omitempty"`
+	MaxLength   *int         `json:"maxLength,omitempty"`
+	MinItems    *int         `json:"minItems,omitempty"`
+	MaxItems    *int         `json:"maxItems,omitempty"`
+	Minimum     *float64     `json:"minimum,omitempty"`
+	Maximum     *float64     `json:"maximum,omitempty"`
+	Default     any          `json:"default,omitempty"`
+	Options     []FormOption `json:"options,omitempty"`
+	Custom      bool         `json:"custom,omitempty"`
+	URL         string       `json:"url,omitempty"`
+}
+
+// FormInfo 是 OpenCode 的一张 pending 表单。
+type FormInfo struct {
+	ID        string          `json:"id"`
+	SessionID string          `json:"sessionID"`
+	Title     string          `json:"title"`
+	Metadata  json.RawMessage `json:"metadata,omitempty"`
+	Fields    []FormField     `json:"fields"`
+	// Directory 只由 form.global_list 填充，OpenCode 响应里没有。
+	Directory string `json:"directory,omitempty"`
 }

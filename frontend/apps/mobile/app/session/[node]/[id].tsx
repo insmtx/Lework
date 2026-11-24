@@ -17,6 +17,7 @@ import {
 import { sessionRoute } from "../../../src/config";
 import { nodeColorSwatch } from "../../../src/nodes/colors";
 import { findProjectForSession, projectDirectoryOnNode } from "../../../src/projects/model";
+import { FormCard } from "../../../src/session/form-card";
 import { MessageRow } from "../../../src/session/message-row";
 import { filterVisibleMessages } from "../../../src/session/messages";
 import { isNearBottom } from "../../../src/session/scroll";
@@ -174,22 +175,26 @@ function SessionSwitcher({
 }
 
 export default function SessionScreen() {
-	const params = useLocalSearchParams<{ node: string; id: string }>();
+	const params = useLocalSearchParams<{ node: string; id: string; form?: string }>();
 	const theme = useTheme();
 	const styles = useThemedStyles(createStyles);
 	const { preferences } = useThemePreference();
 	const nodeID = param(params.node);
 	const sessionID = param(params.id);
+	const deepForm = param(params.form);
 
 	const { settings, settingsLoading, projects, overviewNodes, sessionState, markRead } =
 		useAppShell();
 	const {
 		messages,
 		permissions,
+		forms,
 		loading,
 		error,
 		refresh,
 		reply,
+		replyForm,
+		cancelForm,
 		send,
 		interrupt,
 		sending,
@@ -266,6 +271,14 @@ export default function SessionScreen() {
 	// 用户手动翻过历史后，流式更新不能把它拽回底部。
 	const userScrolled = useRef(false);
 	const stickToBottom = useRef(true);
+
+	// 从通知带 ?form= 进来时直接看到卡片：阻止首次自动贴底并滚到顶部。
+	useEffect(() => {
+		if (!deepForm || loading) return;
+		userScrolled.current = true;
+		stickToBottom.current = false;
+		requestAnimationFrame(() => listRef.current?.scrollToOffset({ offset: 0, animated: false }));
+	}, [deepForm, loading]);
 
 	// 已读水位只在「贴底且内容有更新」时推进，并且节流 5s：
 	// 流式文本每几毫秒就变一次，每次都写 keystore 既费电又没必要。
@@ -374,7 +387,7 @@ export default function SessionScreen() {
 				<Text style={styles.title}>会话不存在</Text>
 				<Text style={styles.hint}>它可能已被删除，或这条深链已经过期。</Text>
 				<Pressable style={styles.primaryButton} onPress={() => router.replace("/pending")}>
-					<Text style={styles.primaryButtonText}>去待审批</Text>
+					<Text style={styles.primaryButtonText}>去待处理</Text>
 				</Pressable>
 				<Pressable style={styles.secondaryButton} onPress={() => router.replace("/")}>
 					<Text style={styles.secondaryButtonText}>回首页</Text>
@@ -437,8 +450,16 @@ export default function SessionScreen() {
 					}}
 					scrollEventThrottle={16}
 					ListHeaderComponent={
-						permissions.length > 0 ? (
+						forms.length + permissions.length > 0 ? (
 							<View style={styles.approvals}>
+								{forms.map((form) => (
+									<FormCard
+										key={form.id}
+										form={form}
+										onSubmit={(answer) => replyForm(form.id, answer)}
+										onCancel={() => cancelForm(form.id)}
+									/>
+								))}
 								{permissions.map((permission) => (
 									<ApprovalCard
 										key={permission.id}
@@ -473,6 +494,19 @@ export default function SessionScreen() {
 					</View>
 				) : null}
 			</View>
+
+			{forms.length + permissions.length > 0 ? (
+				<View style={styles.pendingWrap}>
+					<Pressable
+						accessibilityRole="button"
+						onPress={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })}
+					>
+						<Text style={styles.pendingBarText}>
+							有待处理 · {forms.length + permissions.length}
+						</Text>
+					</Pressable>
+				</View>
+			) : null}
 
 			<GlobalComposer
 				target={{
@@ -533,6 +567,17 @@ function createStyles(theme: Theme) {
 		},
 		newContentText: { fontSize: 12, fontWeight: "600", color: colors.actionText },
 		approvals: { gap: 10, marginBottom: 12 },
+		pendingWrap: { alignItems: "center", paddingBottom: 8 },
+		pendingBarText: {
+			borderRadius: 14,
+			paddingHorizontal: 12,
+			paddingVertical: 6,
+			overflow: "hidden",
+			backgroundColor: colors.action,
+			color: colors.actionText,
+			fontSize: 12,
+			fontWeight: "600",
+		},
 		approval: {
 			borderWidth: 1,
 			borderColor: colors.warningBorder,

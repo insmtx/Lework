@@ -1,12 +1,20 @@
 "use client";
 
 import { Button } from "@lework/ui/components/ui/button";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogHeader,
+	DialogTitle,
+} from "@lework/ui/components/ui/dialog";
 import { Input } from "@lework/ui/components/ui/input";
 import { cn } from "@lework/ui/lib/utils";
 import {
 	Check,
 	ChevronRight,
 	FolderGit2,
+	Globe,
 	Loader2,
 	Pencil,
 	Play,
@@ -20,8 +28,10 @@ import {
 	X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { useControlApi } from "../context";
 import { nodeColorStyle } from "../node-colors";
-import type { NodeHealth, NodeView, Session } from "../types";
+import type { NodeHealth, NodeView, PendingForm, Session } from "../types";
+import { FormCard } from "./form-card";
 import { NodeColorPicker } from "./node-color-picker";
 
 interface NodeSidebarProps {
@@ -110,7 +120,36 @@ export function NodeSidebar({
 	const [confirmDeleteID, setConfirmDeleteID] = useState<string | null>(null);
 	const [deletingID, setDeletingID] = useState<string | null>(null);
 	const [actionError, setActionError] = useState<string | null>(null);
+	const [globalOpen, setGlobalOpen] = useState(false);
+	const [globalForms, setGlobalForms] = useState<PendingForm[]>([]);
+	const [globalLoading, setGlobalLoading] = useState(false);
+	const [globalError, setGlobalError] = useState<string | null>(null);
+	const { client } = useControlApi();
 	const selectedNode = nodes.find((node) => node.id === selectedNodeID);
+
+	const loadGlobalForms = async () => {
+		if (!selectedNodeID) return;
+		setGlobalLoading(true);
+		setGlobalError(null);
+		try {
+			setGlobalForms(await client.listNodeForms(selectedNodeID));
+		} catch (error) {
+			setGlobalForms([]);
+			setGlobalError(error instanceof Error ? error.message : "Unable to load global forms");
+		} finally {
+			setGlobalLoading(false);
+		}
+	};
+
+	// 入口上的数量在切换节点时就刷新；旧节点失败时静默置空，不打扰会话。
+	// biome-ignore lint/correctness/useExhaustiveDependencies: only refetch when the node changes
+	useEffect(() => {
+		if (!selectedNodeID || !selectedNode?.connected) {
+			setGlobalForms([]);
+			return;
+		}
+		void loadGlobalForms();
+	}, [selectedNodeID, selectedNode?.connected]);
 
 	useEffect(() => {
 		setFilterDraft(sessionDirectory);
@@ -441,6 +480,19 @@ export function NodeSidebar({
 							Stop
 						</Button>
 					</div>
+					<Button
+						variant="outline"
+						size="sm"
+						className="mt-1.5 h-8 w-full text-xs md:h-7"
+						onClick={() => {
+							setGlobalOpen(true);
+							void loadGlobalForms();
+						}}
+						disabled={!selectedNode.connected}
+					>
+						<Globe className="size-3.5" />
+						Global forms{globalForms.length > 0 ? ` (${globalForms.length})` : ""}
+					</Button>
 					{nodeHealth?.base_url ? (
 						<p className="mt-1.5 truncate px-1 font-mono text-[10px] text-muted-foreground">
 							{nodeHealth.base_url}
@@ -707,6 +759,39 @@ export function NodeSidebar({
 					) : null}
 				</form>
 			</div>
+			<Dialog open={globalOpen} onOpenChange={setGlobalOpen}>
+				<DialogContent className="max-h-[80vh] overflow-y-auto sm:max-w-xl">
+					<DialogHeader>
+						<DialogTitle>Global forms</DialogTitle>
+						<DialogDescription>
+							Location-level forms are not attached to a session; they disappear once handled.
+						</DialogDescription>
+					</DialogHeader>
+					{globalError ? <p className="text-xs text-destructive">{globalError}</p> : null}
+					{globalLoading ? <Loader2 className="size-4 animate-spin" /> : null}
+					{globalForms.length === 0 && !globalLoading ? (
+						<p className="text-sm text-muted-foreground">No global forms.</p>
+					) : null}
+					<div className="space-y-3">
+						{globalForms.map((form) => (
+							<FormCard
+								key={form.id}
+								form={form}
+								onSubmit={async (answer) => {
+									if (!selectedNodeID) return;
+									await client.replyNodeForm(selectedNodeID, form.id, form.directory ?? "", answer);
+									setGlobalForms((current) => current.filter((item) => item.id !== form.id));
+								}}
+								onCancel={async () => {
+									if (!selectedNodeID) return;
+									await client.cancelNodeForm(selectedNodeID, form.id, form.directory ?? "");
+									setGlobalForms((current) => current.filter((item) => item.id !== form.id));
+								}}
+							/>
+						))}
+					</div>
+				</DialogContent>
+			</Dialog>
 		</aside>
 	);
 }

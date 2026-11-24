@@ -1513,3 +1513,92 @@ func decodeParamsInto[T any](t *testing.T, frame protocol.Frame) T {
 	}
 	return value
 }
+
+func TestAPISessionFormRoutes(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+	rec, agent, conn := env.addNode("dev-box")
+
+	got := replyOK(t, agent, conn, `[{"id":"frm_1","sessionID":"ses_1"}]`)
+	listRec := env.do(http.MethodGet, "/api/sessions/"+rec.ID+"/ses_1/forms", "")
+	requireStatus(t, listRec, http.StatusOK)
+	frame := waitFrame(t, got)
+	if frame.Method != "form.list" {
+		t.Fatalf("method = %q", frame.Method)
+	}
+	if params := decodeParamsInto[formListParams](t, frame); params.SessionID != "ses_1" {
+		t.Fatalf("params = %+v", params)
+	}
+
+	got = replyOK(t, agent, conn, `null`)
+	replyRec := env.do(http.MethodPost, "/api/sessions/"+rec.ID+"/ses_1/forms/frm_1/reply",
+		`{"answer":{"q0":"a"}}`)
+	requireStatus(t, replyRec, http.StatusOK)
+	frame = waitFrame(t, got)
+	if frame.Method != "form.reply" {
+		t.Fatalf("method = %q", frame.Method)
+	}
+	params := decodeParamsInto[formReplyParams](t, frame)
+	if params.SessionID != "ses_1" || params.FormID != "frm_1" || params.Answer["q0"] != "a" {
+		t.Fatalf("params = %+v", params)
+	}
+
+	got = replyOK(t, agent, conn, `null`)
+	cancelRec := env.do(http.MethodDelete,
+		"/api/sessions/"+rec.ID+"/ses_1/forms/frm_1?message=skip", "")
+	requireStatus(t, cancelRec, http.StatusOK)
+	frame = waitFrame(t, got)
+	if frame.Method != "form.cancel" {
+		t.Fatalf("frame = %+v", frame)
+	}
+	if cancel := decodeParamsInto[formCancelParams](t, frame); cancel.Message != "skip" || cancel.FormID != "frm_1" {
+		t.Fatalf("cancel = %+v", cancel)
+	}
+}
+
+func TestAPINodeFormRoutesUseGlobalSession(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+	rec, agent, conn := env.addNode("dev-box")
+
+	got := replyOK(t, agent, conn, `[{"id":"frm_1","sessionID":"global","directory":"/work"}]`)
+	listRec := env.do(http.MethodGet, "/api/nodes/"+rec.ID+"/forms?directory=%2Fwork", "")
+	requireStatus(t, listRec, http.StatusOK)
+	frame := waitFrame(t, got)
+	if frame.Method != "form.global_list" {
+		t.Fatalf("frame = %+v", frame)
+	}
+	if list := decodeParamsInto[formGlobalListParams](t, frame); list.Directory != "/work" {
+		t.Fatalf("list = %+v", list)
+	}
+
+	got = replyOK(t, agent, conn, `null`)
+	replyRec := env.do(http.MethodPost, "/api/nodes/"+rec.ID+"/forms/frm_1/reply",
+		`{"directory":"/work","answer":{"q0":true}}`)
+	requireStatus(t, replyRec, http.StatusOK)
+	frame = waitFrame(t, got)
+	params := decodeParamsInto[formReplyParams](t, frame)
+	if params.SessionID != "global" || params.FormID != "frm_1" ||
+		params.Directory != "/work" || params.Answer["q0"] != true {
+		t.Fatalf("params = %+v", params)
+	}
+
+	got = replyOK(t, agent, conn, `null`)
+	cancelRec := env.do(http.MethodDelete,
+		"/api/nodes/"+rec.ID+"/forms/frm_1?directory=%2Fwork", "")
+	requireStatus(t, cancelRec, http.StatusOK)
+	if frame := waitFrame(t, got); frame.Method != "form.cancel" {
+		t.Fatalf("frame = %+v", frame)
+	}
+}
+
+func TestAPINodeFormReplyRequiresDirectoryAndAnswer(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+	rec, _, _ := env.addNode("dev-box")
+
+	missingDirectory := env.do(http.MethodPost, "/api/nodes/"+rec.ID+"/forms/frm_1/reply",
+		`{"answer":{"q0":"a"}}`)
+	requireErrorCode(t, missingDirectory, http.StatusBadRequest, "invalid_request")
+
+	missingAnswer := env.do(http.MethodPost, "/api/nodes/"+rec.ID+"/forms/frm_1/reply",
+		`{"directory":"/work"}`)
+	requireErrorCode(t, missingAnswer, http.StatusBadRequest, "invalid_request")
+}

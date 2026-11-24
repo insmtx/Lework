@@ -29,6 +29,7 @@ const (
 	concurrency = 4
 
 	eventTypePermissionAsked    = "permission.asked"
+	eventTypeFormCreated        = "form.created"
 	eventTypeExecutionSucceeded = "session.execution.succeeded"
 	eventTypeExecutionFailed    = "session.execution.failed"
 
@@ -163,6 +164,12 @@ type notification struct {
 	priority     string
 	permissionID string
 	kind         string
+
+	// tag 为空时沿用 ev.SessionID；表单按 form ID 打标签，同一会话的多张
+	// 表单才会各自保留一条通知。
+	tag    string
+	formID string
+	global bool
 }
 
 // Handle 处理单个事件。调用方可以是 Run 的 worker，也可以是测试。
@@ -180,6 +187,8 @@ func (n *Notifier) Handle(ctx context.Context, ev event.Event) {
 	switch ev.Type {
 	case eventTypePermissionAsked:
 		note, ok = n.permissionNotification(ev)
+	case eventTypeFormCreated:
+		note, ok = n.formNotification(ev)
 	case eventTypeExecutionSucceeded, eventTypeExecutionFailed:
 		note, ok = n.completionNotification(ev)
 	default:
@@ -212,14 +221,24 @@ func (n *Notifier) Handle(ctx context.Context, ev event.Event) {
 	if note.kind != "" {
 		data["kind"] = note.kind
 	}
+	if note.formID != "" {
+		data["form_id"] = note.formID
+	}
+	if note.global {
+		data["global"] = "true"
+	}
 
 	msgs := make([]Message, 0, len(devices))
 	for _, device := range devices {
+		tag := note.tag
+		if tag == "" {
+			tag = ev.SessionID
+		}
 		msgs = append(msgs, Message{
 			To:        device.PushToken,
 			Title:     note.title,
 			Body:      note.body,
-			Tag:       ev.SessionID,
+			Tag:       tag,
 			ChannelID: note.channelID,
 			Priority:  note.priority,
 			Data:      data,
@@ -293,6 +312,74 @@ func (n *Notifier) completionNotification(ev event.Event) (notification, bool) {
 		channelID: channelCompletions,
 		kind:      kind,
 	}, true
+}
+
+// formNotification 把 form.created 转成“需要回答”通知。正文优先用第一个
+// 字段的标题，其次描述，都没有才退回表单标题。
+func (n *Notifier) formNotification(ev event.Event) (notification, bool) {
+	var payload struct {
+		Form struct {
+			ID        string `json:"id"`
+			SessionID string `json:"sessionID"`
+			Title     string `json:"title"`
+			Metadata  struct {
+				Kind string `json:"kind"`
+			} `json:"metadata"`
+			Fields []struct {
+				Title       string `json:"title"`
+				Description string `json:"description"`
+			} `json:"fields"`
+		} `json:"form"`
+	}
+	if len(ev.Data) == 0 {
+		return notification{}, false
+	}
+	if err := json.Unmarshal(ev.Data, &payload); err != nil || payload.Form.ID == "" {
+		return notification{}, false
+	}
+
+	// global 表单没有会话标题可显示，标题固定为“全局表单”。
+	isGlobal := ev.SessionID == "global"
+	suffix := n.sessionLabel(ev)
+	if isGlobal {
+		suffix = "全局表单"
+	}
+
+	body := payload.Form.Title
+	if len(payload.Form.Fields) > 0 {
+		if title := strings.TrimSpace(payload.Form.Fields[0].Title); title != "" {
+			body = title
+		} else if description := strings.TrimSpace(payload.Form.Fields[0].Description); description != "" {
+			body = description
+		}
+	}
+	body = truncateRunes(body, 120)
+
+	kind := payload.Form.Metadata.Kind
+	if kind == "" {
+		kind = "form"
+	}
+
+	return notification{
+		key:       ev.NodeID + "/" + ev.SessionID + "/form/" + payload.Form.ID,
+		title:     fmt.Sprintf("需要回答 · %s", suffix),
+		body:      body,
+		channelID: channelPermissions,
+		priority:  "high",
+		formID:    payload.Form.ID,
+		global:    isGlobal,
+		kind:      kind,
+		tag:       ev.NodeID + "/form/" + payload.Form.ID,
+	}, true
+}
+
+// truncateRunes 按字符截断，避免把多字节字符切坏。
+func truncateRunes(text string, limit int) string {
+	runes := []rune(text)
+	if len(runes) <= limit {
+		return text
+	}
+	return string(runes[:limit])
 }
 
 // sessionLabel 生成通知标题的二级文本：优先用会话标题，缺省时退回节点名。

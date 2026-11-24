@@ -40,6 +40,18 @@ function event(overrides: Partial<ControlEvent>): ControlEvent {
 	};
 }
 
+function formEvent(overrides: Partial<ControlEvent>): ControlEvent {
+	return {
+		node_id: "node_1",
+		session_id: "ses_1",
+		seq: 1,
+		type: "form.created",
+		data: { form: { id: "frm_1", sessionID: "ses_1", title: "Questions", fields: [] } },
+		time: "2026-11-12T00:02:00Z",
+		...overrides,
+	};
+}
+
 function sessionOf(nodes: OverviewNode[], nodeID = "node_1", sessionID = "ses_1") {
 	return nodes.find((n) => n.node_id === nodeID)?.sessions.find((s) => s.session_id === sessionID);
 }
@@ -91,6 +103,81 @@ describe("applyEvent", () => {
 		);
 		expect(sessionOf(state.nodes, "node_1", "ses_2")?.state).toBe("running");
 		expect(sessionOf(state.nodes, "node_1", "ses_2")?.title).toBe("refactor auth");
+	});
+
+	it("会话表单计入 pending_forms 且重复事件只计一次", () => {
+		let state = createOverviewState(base);
+		state = applyEvent(state, formEvent({}));
+		state = applyEvent(state, formEvent({}));
+		const session = sessionOf(state.nodes);
+		expect(session?.pending_forms).toBe(1);
+		expect(session?.state).toBe("waiting_permission");
+	});
+
+	it("会话表单回复后扣减，审批仍在时保持等待", () => {
+		let state = createOverviewState(base);
+		state = applyEvent(state, asked("perm_1"));
+		state = applyEvent(state, formEvent({}));
+		state = applyEvent(
+			state,
+			formEvent({
+				type: "form.replied",
+				data: { id: "frm_1", sessionID: "ses_1" },
+			}),
+		);
+		const session = sessionOf(state.nodes);
+		expect(session?.pending_forms).toBe(0);
+		expect(session?.pending_permissions).toBe(1);
+		expect(session?.state).toBe("waiting_permission");
+	});
+
+	it("global 表单只计节点，不产生 global 会话", () => {
+		let state = createOverviewState(base);
+		state = applyEvent(
+			state,
+			formEvent({
+				session_id: "global",
+				data: { form: { id: "frm_2", sessionID: "global", fields: [] } },
+			}),
+		);
+		const node = state.nodes[0];
+		expect(node?.pending_forms).toBe(1);
+		expect(node?.sessions.some((session) => session.session_id === "global")).toBe(false);
+	});
+
+	it("执行结束清空两个计数", () => {
+		let state = createOverviewState(base);
+		state = applyEvent(state, formEvent({}));
+		state = applyEvent(
+			state,
+			formEvent({
+				type: "session.execution.succeeded",
+				data: undefined,
+			}),
+		);
+		const session = sessionOf(state.nodes);
+		expect(session?.pending_forms).toBe(0);
+		expect(session?.pending_permissions).toBe(0);
+	});
+
+	it("旧快照缺 pending_forms 时归一为 0", () => {
+		const state = createOverviewState([
+			{
+				node_id: "n",
+				name: "n",
+				connected: true,
+				sessions: [
+					{
+						session_id: "s",
+						state: "running",
+						pending_permissions: 0,
+						last_activity: "2026-11-12T00:00:00Z",
+					},
+				],
+			},
+		] as OverviewNode[]);
+		expect(state.nodes[0]?.pending_forms).toBe(0);
+		expect(state.nodes[0]?.sessions[0]?.pending_forms).toBe(0);
 	});
 
 	it("resync 清空该节点会话但保留节点", () => {

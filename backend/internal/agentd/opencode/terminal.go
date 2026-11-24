@@ -134,7 +134,7 @@ func (c *Client) ResizePersistentTerminal(ctx context.Context, ptyID string, siz
 // 404/204 response.
 func (c *Client) ClosePersistentTerminal(ctx context.Context, ptyID string) error {
 	path := "/api/experimental/persistent-pty/" + url.PathEscape(ptyID)
-	err := c.do(ctx, c.httpClient, http.MethodDelete, path, nil, nil)
+	err := c.do(ctx, c.httpClient, http.MethodDelete, path, "", nil, nil)
 	var status *statusError
 	if errors.As(err, &status) && status.code == http.StatusNotFound {
 		return nil

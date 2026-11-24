@@ -390,7 +390,8 @@ func (s *Server) setMonitorCancel(cancel func()) {
 
 // snapshotPayload 是 node.snapshot 的负载；语义是整节点替换。
 type snapshotPayload struct {
-	Sessions []overview.Session `json:"sessions"`
+	Sessions     []overview.Session `json:"sessions"`
+	PendingForms int                `json:"pending_forms"`
 }
 
 // startNodeCloseSubscriber 订阅跨实例的「关闭节点连接」通知。
@@ -467,12 +468,12 @@ func (s *Server) publishSnapshots(ctx context.Context) {
 // 表示“未知 epoch”：已有状态的接收方会忽略它，全新实例可以接受。
 func (s *Server) publishSnapshotOnce(ctx context.Context) {
 	for _, info := range s.registry.List() {
-		sessions, owner, seq := s.index.SnapshotNodeWithWatermark(info.ID)
+		sessions, pendingForms, owner, seq := s.index.SnapshotNodeWithWatermark(info.ID)
 		if owner == "" {
 			owner = s.publisher.Owner()
 			seq = 0
 		}
-		data, err := json.Marshal(snapshotPayload{Sessions: sessions})
+		data, err := json.Marshal(snapshotPayload{Sessions: sessions, PendingForms: pendingForms})
 		if err != nil {
 			logs.Warnf("controlplane: marshal snapshot for node %s: %v", info.ID, err)
 			continue

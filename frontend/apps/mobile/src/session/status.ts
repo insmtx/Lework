@@ -18,7 +18,7 @@ export function statusLabel(state: SessionStatus | null): string {
 		case "running":
 			return "正在执行…";
 		case "waiting_permission":
-			return "等待你的批准";
+			return "等待你的处理";
 		case "idle":
 			return "执行完成";
 		case "error":

@@ -8,6 +8,7 @@ package overview
 import (
 	"encoding/json"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,7 +21,7 @@ type State string
 const (
 	// StateRunning 表示会话正在产出内容。
 	StateRunning State = "running"
-	// StateWaitingPermission 表示卡在权限请求上，需要人介入。
+	// StateWaitingPermission 表示卡在需要用户处理的审批或表单上。
 	StateWaitingPermission State = "waiting_permission"
 	// StateIdle 表示本轮已结束。
 	StateIdle State = "idle"
@@ -53,6 +54,7 @@ type Session struct {
 	Title        string    `json:"title,omitempty"`
 	State        State     `json:"state"`
 	Pending      int       `json:"pending_permissions"`
+	PendingForms int       `json:"pending_forms"`
 	LastActivity time.Time `json:"last_activity"`
 }
 
@@ -66,10 +68,12 @@ type Permission struct {
 	Message   string   `json:"message,omitempty"`
 }
 
-// Node 是一个节点及其在跑会话。
+// Node 是一个节点及其在跑会话。PendingForms 是位置级（global）表单数量：
+// 这类表单不挂在任何会话上，只能按节点计数。
 type Node struct {
-	NodeID   string    `json:"node_id"`
-	Sessions []Session `json:"sessions"`
+	NodeID       string    `json:"node_id"`
+	PendingForms int       `json:"pending_forms"`
+	Sessions     []Session `json:"sessions"`
 }
 
 type sessionState struct {
@@ -84,6 +88,11 @@ type sessionState struct {
 	// 快照只有计数、没有 permission ID；为了不伪造 ID，快照建立的会话把
 	// 计数单独存在这里，等实时事件到达后再以真实 pending 集合为准。
 	pendingCount int
+
+	// forms 记录待回答表单的 ID；快照只有计数、没有 ID，因此快照建立的
+	// 会话把计数单独放在 pendingFormCount。
+	forms            map[string]struct{}
+	pendingFormCount int
 }
 
 // watermark 记录某节点最近一次被接受的状态事件纪元与序号。
@@ -102,13 +111,19 @@ type Index struct {
 	// watermarks 与 nodes 同锁保护，避免“检查序号”和“应用事件”之间插入
 	// 另一条消息导致旧快照覆盖新状态。
 	watermarks map[string]watermark
+	// globalForms 是位置级表单按节点的 ID 集合；globalFormCounts 保存快照
+	// 给出的计数，用于没有 ID 时仍能显示徽标。
+	globalForms      map[string]map[string]struct{}
+	globalFormCounts map[string]int
 }
 
 // NewIndex 创建空索引。
 func NewIndex() *Index {
 	return &Index{
-		nodes:      make(map[string]map[string]*sessionState),
-		watermarks: make(map[string]watermark),
+		nodes:            make(map[string]map[string]*sessionState),
+		watermarks:       make(map[string]watermark),
+		globalForms:      make(map[string]map[string]struct{}),
+		globalFormCounts: make(map[string]int),
 	}
 }
 
@@ -136,9 +151,16 @@ func (i *Index) Apply(ev event.Event) {
 
 	if ev.Type == resyncEvent {
 		delete(i.nodes, ev.NodeID)
+		delete(i.globalForms, ev.NodeID)
+		delete(i.globalFormCounts, ev.NodeID)
 		return
 	}
 	if ev.SessionID == "" {
+		return
+	}
+	if ev.SessionID == "global" && strings.HasPrefix(ev.Type, "form.") {
+		i.applyGlobalFormLocked(ev)
+		i.pruneLocked(at)
 		return
 	}
 
@@ -155,6 +177,7 @@ func (i *Index) Apply(ev event.Event) {
 		sess = &sessionState{
 			sessionID: ev.SessionID,
 			pending:   make(map[string]Permission),
+			forms:     make(map[string]struct{}),
 		}
 		sessions[ev.SessionID] = sess
 	}
@@ -173,7 +196,23 @@ func (i *Index) Apply(ev event.Event) {
 			delete(sess.pending, id)
 		}
 		sess.pendingCount = len(sess.pending)
-		if len(sess.pending) == 0 {
+		if len(sess.pending) == 0 && sess.pendingFormCount == 0 {
+			sess.state = StateRunning
+		}
+
+	case "form.created":
+		if id := formIDFrom(ev.Data); id != "" {
+			sess.forms[id] = struct{}{}
+		}
+		sess.pendingFormCount = len(sess.forms)
+		sess.state = StateWaitingPermission
+
+	case "form.replied", "form.cancelled":
+		if id := formIDFrom(ev.Data); id != "" {
+			delete(sess.forms, id)
+		}
+		sess.pendingFormCount = len(sess.forms)
+		if len(sess.pending) == 0 && sess.pendingFormCount == 0 {
 			sess.state = StateRunning
 		}
 
@@ -181,11 +220,15 @@ func (i *Index) Apply(ev event.Event) {
 		sess.state = StateError
 		sess.pending = make(map[string]Permission)
 		sess.pendingCount = 0
+		sess.forms = make(map[string]struct{})
+		sess.pendingFormCount = 0
 
 	case "session.execution.succeeded", "session.execution.interrupted":
 		sess.state = StateIdle
 		sess.pending = make(map[string]Permission)
 		sess.pendingCount = 0
+		sess.forms = make(map[string]struct{})
+		sess.pendingFormCount = 0
 
 	case "session.created", "session.updated":
 		if sess.state == "" {
@@ -222,7 +265,8 @@ func (i *Index) applySnapshot(ev event.Event) {
 	}
 
 	var payload *struct {
-		Sessions []Session `json:"sessions"`
+		Sessions     []Session `json:"sessions"`
+		PendingForms int       `json:"pending_forms"`
 	}
 	if err := json.Unmarshal(ev.Data, &payload); err != nil || payload == nil {
 		return
@@ -245,13 +289,19 @@ func (i *Index) applySnapshot(ev event.Event) {
 		if pendingCount < 0 {
 			pendingCount = 0
 		}
+		pendingForms := sess.PendingForms
+		if pendingForms < 0 {
+			pendingForms = 0
+		}
 		sessions[sess.SessionID] = &sessionState{
-			sessionID:    sess.SessionID,
-			title:        sess.Title,
-			state:        state,
-			pending:      make(map[string]Permission),
-			lastActivity: lastActivity,
-			pendingCount: pendingCount,
+			sessionID:        sess.SessionID,
+			title:            sess.Title,
+			state:            state,
+			pending:          make(map[string]Permission),
+			lastActivity:     lastActivity,
+			pendingCount:     pendingCount,
+			forms:            make(map[string]struct{}),
+			pendingFormCount: pendingForms,
 		}
 	}
 
@@ -267,6 +317,25 @@ func (i *Index) applySnapshot(ev event.Event) {
 
 	if i.nodes == nil {
 		i.nodes = make(map[string]map[string]*sessionState)
+	}
+	if i.globalForms == nil {
+		i.globalForms = make(map[string]map[string]struct{})
+	}
+	if i.globalFormCounts == nil {
+		i.globalFormCounts = make(map[string]int)
+	}
+	i.globalForms[ev.NodeID] = make(map[string]struct{})
+	globalCount := payload.PendingForms
+	if globalCount < 0 {
+		globalCount = 0
+	}
+	i.globalFormCounts[ev.NodeID] = globalCount
+
+	if len(sessions) == 0 && globalCount == 0 {
+		delete(i.nodes, ev.NodeID)
+		delete(i.globalForms, ev.NodeID)
+		delete(i.globalFormCounts, ev.NodeID)
+		return
 	}
 	if len(sessions) == 0 {
 		delete(i.nodes, ev.NodeID)
@@ -330,6 +399,14 @@ func (i *Index) pruneLocked(now time.Time) {
 			delete(i.nodes, nodeID)
 		}
 	}
+	// 只有 global 表单的节点不在 i.nodes 里，必须单独判断，否则清理空节点时
+	// 会把仍在等用户处理的表单一起丢掉。
+	for nodeID := range i.globalForms {
+		if len(i.nodes[nodeID]) == 0 && i.globalPendingTotalLocked(nodeID) == 0 {
+			delete(i.globalForms, nodeID)
+			delete(i.globalFormCounts, nodeID)
+		}
+	}
 }
 
 // Snapshot 返回一份可序列化的拷贝，按节点 ID 升序、会话按最近活动降序。
@@ -337,11 +414,21 @@ func (i *Index) Snapshot() []Node {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
-	out := make([]Node, 0, len(i.nodes))
-	for nodeID, sessions := range i.nodes {
+	nodeIDs := make(map[string]struct{}, len(i.nodes)+len(i.globalForms))
+	for nodeID := range i.nodes {
+		nodeIDs[nodeID] = struct{}{}
+	}
+	for nodeID := range i.globalForms {
+		nodeIDs[nodeID] = struct{}{}
+	}
+
+	out := make([]Node, 0, len(nodeIDs))
+	for nodeID := range nodeIDs {
+		sessions := i.nodes[nodeID]
 		node := Node{
-			NodeID:   nodeID,
-			Sessions: make([]Session, 0, len(sessions)),
+			NodeID:       nodeID,
+			PendingForms: i.globalPendingTotalLocked(nodeID),
+			Sessions:     make([]Session, 0, len(sessions)),
 		}
 		for _, sess := range sessions {
 			node.Sessions = append(node.Sessions, Session{
@@ -349,6 +436,7 @@ func (i *Index) Snapshot() []Node {
 				Title:        sess.title,
 				State:        sess.state,
 				Pending:      pendingTotal(sess),
+				PendingForms: pendingFormTotal(sess),
 				LastActivity: sess.lastActivity,
 			})
 		}
@@ -375,12 +463,12 @@ func (i *Index) SnapshotNode(nodeID string) []Session {
 //
 // 快照必须带上生成时的 owner + seq，接收方才能判断它是否已被实时事件超越。
 // 未知节点返回空切片与零值 watermark。
-func (i *Index) SnapshotNodeWithWatermark(nodeID string) ([]Session, string, int64) {
+func (i *Index) SnapshotNodeWithWatermark(nodeID string) ([]Session, int, string, int64) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
 	wm := i.watermarks[nodeID]
-	return i.snapshotNodeLocked(nodeID), wm.owner, wm.seq
+	return i.snapshotNodeLocked(nodeID), i.globalPendingTotalLocked(nodeID), wm.owner, wm.seq
 }
 
 // snapshotNodeLocked 构造节点投影副本；调用方必须持有 i.mu。
@@ -393,6 +481,7 @@ func (i *Index) snapshotNodeLocked(nodeID string) []Session {
 			Title:        sess.title,
 			State:        sess.state,
 			Pending:      pendingTotal(sess),
+			PendingForms: pendingFormTotal(sess),
 			LastActivity: sess.lastActivity,
 		})
 	}
@@ -411,6 +500,61 @@ func pendingTotal(sess *sessionState) int {
 		return n
 	}
 	return sess.pendingCount
+}
+
+// pendingFormTotal 与会话审批同样的快照兜底：有真实 ID 时以集合为准。
+func pendingFormTotal(sess *sessionState) int {
+	if n := len(sess.forms); n > 0 {
+		return n
+	}
+	return sess.pendingFormCount
+}
+
+// globalPendingTotalLocked 返回节点级表单数量；调用方必须持有 i.mu。
+func (i *Index) globalPendingTotalLocked(nodeID string) int {
+	if n := len(i.globalForms[nodeID]); n > 0 {
+		return n
+	}
+	return i.globalFormCounts[nodeID]
+}
+
+// applyGlobalFormLocked 把位置级表单投影到节点级集合；global 表单没有会话。
+// 调用方必须持有 i.mu。
+func (i *Index) applyGlobalFormLocked(ev event.Event) {
+	forms := i.globalForms[ev.NodeID]
+	if forms == nil {
+		forms = make(map[string]struct{})
+		i.globalForms[ev.NodeID] = forms
+	}
+	if id := formIDFrom(ev.Data); id != "" {
+		switch ev.Type {
+		case "form.created":
+			forms[id] = struct{}{}
+		case "form.replied", "form.cancelled":
+			delete(forms, id)
+		}
+	}
+	i.globalFormCounts[ev.NodeID] = len(forms)
+}
+
+// formIDFrom 解析表单 ID：form.created 在 data.form.id，其余事件在 data.id。
+func formIDFrom(data json.RawMessage) string {
+	if len(data) == 0 {
+		return ""
+	}
+	var payload struct {
+		ID   string `json:"id"`
+		Form struct {
+			ID string `json:"id"`
+		} `json:"form"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return ""
+	}
+	if payload.Form.ID != "" {
+		return payload.Form.ID
+	}
+	return payload.ID
 }
 
 // Title 返回会话标题；未知节点或会话返回空串。
@@ -456,6 +600,8 @@ func (i *Index) ResetNode(nodeID string) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	delete(i.nodes, nodeID)
+	delete(i.globalForms, nodeID)
+	delete(i.globalFormCounts, nodeID)
 }
 
 // permissionFrom 解析 permission.asked 负载；缺少 ID 或 action 时视为不可用。

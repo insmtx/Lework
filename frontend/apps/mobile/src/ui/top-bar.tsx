@@ -25,7 +25,7 @@ export function DrawerButton({ accessibilityLabel = "打开菜单" }: { accessib
 }
 
 /**
- * BellButton 汇总所有节点的待审批数量并跳到待审批页。
+ * BellButton 汇总所有节点的待处理数量并跳到待处理页。
  *
  * 数字来自总览快照，不额外请求；为 0 时不显示角标，免得顶栏一直是红的。
  */
@@ -35,7 +35,7 @@ export function BellButton({ onPress }: { onPress?: () => void }) {
 
 	return (
 		<Pressable
-			accessibilityLabel="待审批"
+			accessibilityLabel="待处理"
 			hitSlop={12}
 			style={styles.iconButton}
 			onPress={onPress ?? (() => router.push("/pending"))}

@@ -311,6 +311,22 @@ func (c *countingOpenCode) ReplyPermission(context.Context, string, string, stri
 }
 
 // ListPermissions 是空实现：本测试不产生权限请求。
+func (c *countingOpenCode) ListForms(context.Context, string) ([]opencode.FormInfo, error) {
+	return nil, nil
+}
+
+func (c *countingOpenCode) ListLocationForms(context.Context, string) ([]opencode.FormInfo, error) {
+	return nil, nil
+}
+
+func (c *countingOpenCode) ReplyForm(context.Context, string, string, string, map[string]any) error {
+	return nil
+}
+
+func (c *countingOpenCode) CancelForm(context.Context, string, string, string, string) error {
+	return nil
+}
+
 func (c *countingOpenCode) ListPermissions(context.Context) ([]opencode.PermissionRequest, error) {
 	return nil, nil
 }

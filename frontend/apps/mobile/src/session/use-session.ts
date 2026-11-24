@@ -1,5 +1,11 @@
-import type { Message, PendingPermission, SessionState } from "@lework/api";
-import { ApiError } from "@lework/api";
+import type {
+	FormAnswerValue,
+	Message,
+	PendingForm,
+	PendingPermission,
+	SessionState,
+} from "@lework/api";
+import { ApiError, mergeForm } from "@lework/api";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { createClient } from "../api/client";
@@ -61,10 +67,13 @@ export function useSession(
 ): {
 	messages: Message[];
 	permissions: PendingPermission[];
+	forms: PendingForm[];
 	loading: boolean;
 	error: string | null;
 	refresh: () => void;
 	reply: (permissionID: string, decision: Decision, message?: string) => Promise<void>;
+	replyForm: (formID: string, answer: Record<string, FormAnswerValue>) => Promise<void>;
+	cancelForm: (formID: string, message?: string) => Promise<void>;
 	send: (text: string) => Promise<void>;
 	interrupt: () => Promise<void>;
 	connected: boolean;
@@ -88,12 +97,19 @@ export function useSession(
 	const [snapshot, setSnapshot] = useState<Message[]>([]);
 	const [buffer, setBuffer] = useState<LiveBuffer>(createLiveBuffer);
 	const [permissions, setPermissionsState] = useState<PendingPermission[]>([]);
+	const [forms, setFormsState] = useState<PendingForm[]>([]);
 	// 事件回调读不到最新的 React 状态，用 ref 保留一份同步镜像：
 	// 判断「是否还有待审批」依赖它，旧值会让状态点在回复后卡住。
 	const permissionsRef = useRef<PendingPermission[]>([]);
 	const setPermissions = useCallback((next: PendingPermission[]) => {
 		permissionsRef.current = next;
 		setPermissionsState(next);
+	}, []);
+	// 与 permissions 对称：事件回调读不到最新渲染值，需要同步镜像。
+	const formsRef = useRef<PendingForm[]>([]);
+	const setForms = useCallback((next: PendingForm[]) => {
+		formsRef.current = next;
+		setFormsState(next);
 	}, []);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -120,12 +136,23 @@ export function useSession(
 		setPermissions(await client.listPendingPermissions(nodeID, sessionID));
 	}, [client, nodeID, sessionID, setPermissions]);
 
+	// 表单接口在旧控制面/旧节点上不存在；失败只是降级成“没有表单”，
+	// 不能把整个会话页变成错误页。
+	const loadForms = useCallback(async () => {
+		if (!client || !sessionID) return;
+		try {
+			setForms(await client.listPendingForms(nodeID, sessionID));
+		} catch {
+			// 保留当前值，下一次事件或刷新会纠正。
+		}
+	}, [client, nodeID, sessionID, setForms]);
+
 	const refresh = useCallback(() => {
 		if (!client) return;
 		setLoading(true);
 		setError(null);
 		setNotFound(false);
-		void Promise.all([loadMessages(), loadPermissions()])
+		void Promise.all([loadMessages(), loadPermissions(), loadForms()])
 			.catch((caught: unknown) => {
 				// 会话被删除或深链过期时，整页没有可展示内容；单独标记出来，
 				// 让页面给出「去待审批/回我的」出口而不是空消息流。
@@ -138,7 +165,7 @@ export function useSession(
 				setError(caught instanceof Error ? caught.message : "failed to load session");
 			})
 			.finally(() => setLoading(false));
-	}, [client, loadMessages, loadPermissions]);
+	}, [client, loadMessages, loadPermissions, loadForms]);
 
 	useEffect(() => {
 		refresh();
@@ -158,6 +185,8 @@ export function useSession(
 			if (isResyncEvent(event, nodeID)) {
 				setBuffer(clearBuffer());
 				setState(null);
+				setPermissions([]);
+				setForms([]);
 				refresh();
 				return;
 			}
@@ -168,11 +197,19 @@ export function useSession(
 				event.type === "permission.asked" ||
 				event.type === "permission.replied" ||
 				event.type === "permission.resolved";
+			if (event.type.startsWith("form.")) {
+				const next = mergeForm(formsRef.current, event);
+				setForms(next);
+				setState(
+					next.length + permissionsRef.current.length > 0 ? "waiting_permission" : "running",
+				);
+			}
+
 			if (permissionEvent) {
 				const next = mergePermission(permissionsRef.current, event);
 				setPermissions(next);
-				// 审批状态跟随实际待审批数量：还有卡片就必须继续显示橙点。
-				setState(next.length > 0 ? "waiting_permission" : "running");
+				// 审批与表单任一仍待处理，状态点就必须继续显示等待。
+				setState(next.length + formsRef.current.length > 0 ? "waiting_permission" : "running");
 			}
 
 			switch (event.type) {
@@ -181,12 +218,14 @@ export function useSession(
 					break;
 				case "session.execution.succeeded":
 				case "session.execution.interrupted":
-					// 执行结束意味着本轮不可能再有待审批，服务端也会清空。
+					// 执行结束意味着本轮不可能再有待审批或表单，服务端也会清空。
 					setPermissions([]);
+					setForms([]);
 					setState("idle");
 					break;
 				case "session.execution.failed":
 					setPermissions([]);
+					setForms([]);
 					setState("error");
 					break;
 				default:
@@ -209,8 +248,10 @@ export function useSession(
 			// 断线重连：本地增量与派生状态都可能落后，清空后从快照重建。
 			setBuffer(clearBuffer());
 			setState(null);
+			setForms([]);
 			void loadMessages().catch(ignoreRefreshError);
 			void loadPermissions().catch(ignoreRefreshError);
+			void loadForms();
 		},
 		// live=1 才收增量事件；session 过滤把这条流收窄到当前会话（节点级事件保留）。
 		// 子代理页在还没找到子会话时 sessionID 为空，此时不能订阅整节点的
@@ -248,6 +289,39 @@ export function useSession(
 		[client, nodeID, sessionID, setPermissions],
 	);
 
+	const replyForm = useCallback(
+		async (formID: string, answer: Record<string, FormAnswerValue>) => {
+			if (!client) throw new Error("not connected");
+			try {
+				await client.replyForm(nodeID, sessionID, formID, answer);
+			} catch (caught) {
+				// 失败后重拉，避免本地卡片与 OpenCode 的真实状态分叉。
+				await loadForms();
+				throw caught;
+			}
+			const next = formsRef.current.filter((form) => form.id !== formID);
+			setForms(next);
+			setState(next.length + permissionsRef.current.length > 0 ? "waiting_permission" : "running");
+		},
+		[client, nodeID, sessionID, loadForms, setForms],
+	);
+
+	const cancelForm = useCallback(
+		async (formID: string, message?: string) => {
+			if (!client) throw new Error("not connected");
+			try {
+				await client.cancelForm(nodeID, sessionID, formID, message);
+			} catch (caught) {
+				await loadForms();
+				throw caught;
+			}
+			const next = formsRef.current.filter((form) => form.id !== formID);
+			setForms(next);
+			setState(next.length + permissionsRef.current.length > 0 ? "waiting_permission" : "running");
+		},
+		[client, nodeID, sessionID, loadForms, setForms],
+	);
+
 	const send = useCallback(
 		async (text: string) => {
 			if (!client) throw new Error("not connected");
@@ -273,10 +347,13 @@ export function useSession(
 	return {
 		messages,
 		permissions,
+		forms,
 		loading,
 		error,
 		refresh,
 		reply,
+		replyForm,
+		cancelForm,
 		send,
 		interrupt,
 		connected,

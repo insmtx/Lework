@@ -163,6 +163,8 @@ export interface OverviewSession {
 	title?: string;
 	state: SessionState;
 	pending_permissions: number;
+	/** 该会话待回答的表单数；旧控制面缺省时按 0 处理。 */
+	pending_forms?: number;
 	last_activity: string;
 }
 
@@ -170,6 +172,8 @@ export interface OverviewNode {
 	node_id: string;
 	name: string;
 	connected: boolean;
+	/** 位置级（global）表单数量；旧控制面缺省时按 0 处理。 */
+	pending_forms?: number;
 	sessions: OverviewSession[];
 }
 
@@ -179,6 +183,52 @@ export interface PendingPermission {
 	action: string;
 	resources: string[];
 	message?: string;
+}
+
+export type FormAnswerValue = string | boolean | number | string[];
+
+export interface FormOption {
+	value: string;
+	label: string;
+	description?: string;
+}
+
+export interface FormWhen {
+	key: string;
+	op: "eq" | "neq";
+	value: string | boolean | number;
+}
+
+export interface FormField {
+	key: string;
+	type: "string" | "number" | "integer" | "boolean" | "multiselect" | "external";
+	title?: string;
+	description?: string;
+	required?: boolean;
+	hidden?: boolean;
+	when?: FormWhen[];
+	format?: string;
+	placeholder?: string;
+	minLength?: number;
+	maxLength?: number;
+	minItems?: number;
+	maxItems?: number;
+	minimum?: number;
+	maximum?: number;
+	default?: FormAnswerValue;
+	options?: FormOption[];
+	custom?: boolean;
+	url?: string;
+}
+
+/** PendingForm 同时用于会话表单与 global 表单；global 时 directory 必有值。 */
+export interface PendingForm {
+	id: string;
+	session_id: string;
+	title: string;
+	metadata?: { kind?: string };
+	fields: FormField[];
+	directory?: string;
 }
 
 export interface DeviceRegistration {

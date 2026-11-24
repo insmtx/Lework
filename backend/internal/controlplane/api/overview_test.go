@@ -68,3 +68,20 @@ func TestOverviewReturnsEmptyArray(t *testing.T) {
 		t.Fatalf("body = %s, want empty array", rec.Body.String())
 	}
 }
+
+func TestOverviewIncludesNodePendingForms(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+	rec, _, _ := env.addNode("dev-box")
+
+	env.index.Apply(event.Event{
+		NodeID: rec.ID, SessionID: "global", Type: "form.created",
+		Data: json.RawMessage(`{"form":{"id":"frm_1"}}`), Time: time.Now(),
+	})
+
+	httpRec := env.do(http.MethodGet, "/api/overview", "")
+	requireStatus(t, httpRec, http.StatusOK)
+	body := decodeBody[overviewResponse](t, httpRec)
+	if len(body.Nodes) != 1 || body.Nodes[0].PendingForms != 1 {
+		t.Fatalf("nodes = %+v", body.Nodes)
+	}
+}

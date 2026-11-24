@@ -99,7 +99,14 @@ export function AppShell({ children }: { children: ReactNode }) {
 		() =>
 			overviewNodes.reduce(
 				(total, node) =>
-					total + node.sessions.reduce((sum, session) => sum + session.pending_permissions, 0),
+					total +
+					node.sessions.reduce(
+						(sum, session) =>
+							sum + session.pending_permissions + (session.pending_forms ?? 0),
+						0,
+					) +
+					// 离线节点的 global 表单无法立即处理，和审批一样不计入徽标。
+					(node.connected ? (node.pending_forms ?? 0) : 0),
 				0,
 			),
 		[overviewNodes],

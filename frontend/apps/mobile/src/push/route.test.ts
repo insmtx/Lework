@@ -44,3 +44,28 @@ describe("routeFromNotification", () => {
 		);
 	});
 });
+
+describe("表单推送深链", () => {
+	it("表单推送直达会话并带 form 参数", () => {
+		expect(
+			routeFromNotification({ node: "node_1", session: "ses_1", form_id: "frm_1" }),
+		).toBe("/session/node_1/ses_1?form=frm_1");
+	});
+
+	it("global 表单落到待处理页", () => {
+		expect(
+			routeFromNotification({ node: "node_1", session: "global", form_id: "frm_1", global: true }),
+		).toBe("/pending");
+	});
+
+	it("form_id 优先于 permission_id", () => {
+		expect(
+			routeFromNotification({
+				node: "node_1",
+				session: "ses_1",
+				permission_id: "perm_1",
+				form_id: "frm_1",
+			}),
+		).toBe("/session/node_1/ses_1?form=frm_1");
+	});
+});
