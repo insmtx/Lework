@@ -29,12 +29,13 @@ export function pendingRows(nodes: NodeSessions[]): PendingRow[] {
 	for (const entry of nodes) {
 		online.set(entry.node.id, entry.node.connected);
 		for (const session of entry.sessions) {
-			if (session.pending_permissions <= 0) continue;
+			const count = session.pending_permissions + (session.pending_forms ?? 0);
+			if (count <= 0) continue;
 			rows.push({
 				nodeID: entry.node.id,
 				sessionID: session.session_id,
 				title: session.title,
-				count: session.pending_permissions,
+				count,
 			});
 		}
 	}

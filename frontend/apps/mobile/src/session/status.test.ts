@@ -5,7 +5,7 @@ import { statusGlyph, statusLabel, statusTone } from "./status";
 describe("statusLabel", () => {
 	it("把执行状态翻译成一行文案", () => {
 		expect(statusLabel("running")).toBe("正在执行…");
-		expect(statusLabel("waiting_permission")).toBe("等待你的批准");
+		expect(statusLabel("waiting_permission")).toBe("等待你的处理");
 		expect(statusLabel("idle")).toBe("执行完成");
 		expect(statusLabel("error")).toBe("执行出错");
 		expect(statusLabel("offline")).toBe("节点离线");

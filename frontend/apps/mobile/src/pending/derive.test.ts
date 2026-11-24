@@ -41,6 +41,13 @@ describe("pendingRows", () => {
 		expect(rows.map((row) => row.sessionID)).toEqual(["three", "two", "one"]);
 	});
 
+	it("会话行计数合并审批与表单", () => {
+		const rows = pendingRows([
+			{ node: node("n1", true), sessions: [{ ...session("s1", 1), pending_forms: 2 }] },
+		]);
+		expect(rows[0]?.count).toBe(3);
+	});
+
 	it("在线节点排在离线节点之前，即使审批更少", () => {
 		const rows = pendingRows([
 			{ node: node("offline", false), sessions: [session("s-offline", 5)] },
