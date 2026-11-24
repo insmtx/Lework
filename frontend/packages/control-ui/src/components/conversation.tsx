@@ -5,15 +5,19 @@ import { Textarea } from "@lework/ui/components/ui/textarea";
 import { cn } from "@lework/ui/lib/utils";
 import { ArrowUp, ChevronUp, Loader2, MessageSquare, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { Message, PermissionRequest } from "../types";
+import type { FormAnswerValue, Message, PendingForm, PermissionRequest } from "../types";
+import { FormCard } from "./form-card";
 import { PermissionCard } from "./permission-card";
 import { ToolCardList } from "./tool-call/tool-card";
 
 interface ConversationProps {
 	messages: Message[];
 	permissions: PermissionRequest[];
+	forms: PendingForm[];
 	onSend: (text: string) => Promise<void>;
 	onInterrupt: () => Promise<void>;
+	onSubmitForm: (form: PendingForm, answer: Record<string, FormAnswerValue>) => Promise<void>;
+	onCancelForm: (form: PendingForm) => Promise<void>;
 	onResolvePermission: (
 		permission: PermissionRequest,
 		decision: "once" | "always" | "reject",
@@ -97,8 +101,11 @@ function MessageTurn({ message }: { message: Message }) {
 export function Conversation({
 	messages,
 	permissions,
+	forms,
 	onSend,
 	onInterrupt,
+	onSubmitForm,
+	onCancelForm,
 	onResolvePermission,
 	sending,
 	interrupting,
@@ -119,7 +126,7 @@ export function Conversation({
 		if (!stickToBottom.current) return;
 		const node = scrollRef.current;
 		if (node) node.scrollTop = node.scrollHeight;
-	}, [messages.length, permissions.length]);
+	}, [messages.length, permissions.length, forms.length]);
 
 	const submit = async () => {
 		const value = text.trim();
@@ -187,6 +194,16 @@ export function Conversation({
 			{/* 键盘弹出时 composer 需要贴着可视区域底部，并让开 iPhone 的 Home 指示条。 */}
 			<div className="border-t bg-background/95 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 md:px-6 md:pb-3">
 				<div className="mx-auto max-w-3xl space-y-2">
+					{/* 表单需要先回答，放在审批卡之前，顺序与会话页一致。 */}
+					{forms.map((form) => (
+						<FormCard
+							key={form.id}
+							form={form}
+							disabled={!nodeConnected}
+							onSubmit={(answer) => onSubmitForm(form, answer)}
+							onCancel={() => onCancelForm(form)}
+						/>
+					))}
 					{permissions.map((permission) => (
 						<PermissionCard
 							key={permission.id}

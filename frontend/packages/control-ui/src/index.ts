@@ -10,6 +10,7 @@ export { ControlAuthGate } from "./components/control-auth-gate";
 export { Conversation } from "./components/conversation";
 export { DiffView } from "./components/diff-view";
 export { FileBrowser } from "./components/file-browser";
+export { FormCard } from "./components/form-card";
 export { NodeSidebar } from "./components/node-sidebar";
 export { PermissionCard } from "./components/permission-card";
 export { SessionPanel } from "./components/session-panel";
