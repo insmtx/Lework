@@ -442,7 +442,7 @@ func (c *Client) ReadFile(ctx context.Context, directory, path string, maxBytes 
 // session.execution.succeeded/failed events.
 func (c *Client) Wait(ctx context.Context, sessionID string) error {
 	path := "/api/experimental/session/" + url.PathEscape(sessionID) + "/wait"
-	err := c.do(ctx, c.streamClient, http.MethodPost, path, nil, nil)
+	err := c.do(ctx, c.streamClient, http.MethodPost, path, "", nil, nil)
 	if err == nil {
 		return nil
 	}
@@ -506,7 +506,13 @@ func (c *Client) SubscribeEvents(ctx context.Context) (<-chan Event, error) {
 
 // doJSON performs one request/response call through the bounded client.
 func (c *Client) doJSON(ctx context.Context, method, path string, in, out any) error {
-	return c.do(ctx, c.httpClient, method, path, in, out)
+	return c.do(ctx, c.httpClient, method, path, "", in, out)
+}
+
+// doJSONAt 与 doJSON 相同，但会带 OpenCode 的目录头；位置级（global）表单
+// 不属于任何会话，目录是服务端定位表单的唯一依据。
+func (c *Client) doJSONAt(ctx context.Context, method, path, directory string, in, out any) error {
+	return c.do(ctx, c.httpClient, method, path, directory, in, out)
 }
 
 // doData performs one call and unwraps the v2 {"data": ...} envelope into out.
@@ -531,7 +537,7 @@ func (c *Client) doData(ctx context.Context, method, path string, in, out any) e
 // do performs one request/response call with the supplied client, encoding in
 // as JSON when non-nil and decoding the body into out when non-nil. Neither the
 // request body nor the prompt text is ever included in an error message.
-func (c *Client) do(ctx context.Context, httpClient *http.Client, method, path string, in, out any) error {
+func (c *Client) do(ctx context.Context, httpClient *http.Client, method, path, directory string, in, out any) error {
 	var body io.Reader
 	if in != nil {
 		encoded, err := json.Marshal(in)
@@ -550,6 +556,9 @@ func (c *Client) do(ctx context.Context, httpClient *http.Client, method, path s
 	}
 	req.Header.Set("Accept", "application/json")
 	c.authorize(req)
+	if directory != "" {
+		req.Header.Set("x-opencode-directory", encodeDirectoryHeader(directory))
+	}
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -569,6 +578,12 @@ func (c *Client) do(ctx context.Context, httpClient *http.Client, method, path s
 		return fmt.Errorf("decode opencode %s %s response: %w", method, path, err)
 	}
 	return nil
+}
+
+// encodeDirectoryHeader 输出与 JS encodeURIComponent 等价的值：QueryEscape
+// 把空格写成 "+"，而 header 解码不会把 "+" 还原成空格，所以再换回 %20。
+func encodeDirectoryHeader(directory string) string {
+	return strings.ReplaceAll(url.QueryEscape(directory), "+", "%20")
 }
 
 // authorize attaches the basic-auth credential. opencode accepts only the
@@ -708,4 +723,40 @@ type promptResponse struct {
 type replyPermissionRequest struct {
 	Decision string `json:"decision"`
 	Message  string `json:"message,omitempty"`
+}
+
+// ListForms 返回某会话的 pending 表单。
+func (c *Client) ListForms(ctx context.Context, sessionID string) ([]FormInfo, error) {
+	var forms []FormInfo
+	if err := c.doData(ctx, http.MethodGet, sessionPath(sessionID)+"/form", nil, &forms); err != nil {
+		return nil, err
+	}
+	return forms, nil
+}
+
+// ListLocationForms 返回某目录下的 pending 表单；结果同时包含会话表单与
+// global 表单，调用方必须按 sessionID == "global" 过滤。
+func (c *Client) ListLocationForms(ctx context.Context, directory string) ([]FormInfo, error) {
+	query := url.Values{}
+	query.Set("location[directory]", directory)
+	var forms []FormInfo
+	if err := c.doData(ctx, http.MethodGet, "/api/form?"+query.Encode(), nil, &forms); err != nil {
+		return nil, err
+	}
+	return forms, nil
+}
+
+// ReplyForm 提交整张表单；directory 非空时按 global 表单带目录头。
+func (c *Client) ReplyForm(ctx context.Context, sessionID, formID, directory string, answer map[string]any) error {
+	path := sessionPath(sessionID) + "/form/" + url.PathEscape(formID) + "/reply"
+	return c.doJSONAt(ctx, http.MethodPost, path, directory, map[string]any{"answer": answer}, nil)
+}
+
+// CancelForm 取消整张表单；message 为空时不带 query。
+func (c *Client) CancelForm(ctx context.Context, sessionID, formID, directory, message string) error {
+	path := sessionPath(sessionID) + "/form/" + url.PathEscape(formID)
+	if message != "" {
+		path += "?message=" + url.QueryEscape(message)
+	}
+	return c.doJSONAt(ctx, http.MethodDelete, path, directory, nil, nil)
 }
