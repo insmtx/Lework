@@ -30,7 +30,8 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { useControlApi } from "../context";
 import { nodeColorStyle } from "../node-colors";
-import type { NodeHealth, NodeView, PendingForm, Session } from "../types";
+import { sessionStateClass } from "../session-state";
+import type { NodeHealth, NodeView, PendingForm, Session, SessionState } from "../types";
 import { FormCard } from "./form-card";
 import { NodeColorPicker } from "./node-color-picker";
 
@@ -58,6 +59,8 @@ interface NodeSidebarProps {
 	onStopOpenCode: () => void | Promise<void>;
 	/** 每个会话待处理的审批数量；手机上看不到别的会话，只能靠列表徽标发现。 */
 	pendingCounts: Record<string, number>;
+	/** 选中节点各会话的执行状态；用来给列表行铺透明渐变跑马灯。 */
+	sessionStates: Record<string, SessionState>;
 }
 
 function shortTime(value?: string): string {
@@ -106,6 +109,7 @@ export function NodeSidebar({
 	onRestartOpenCode,
 	onStopOpenCode,
 	pendingCounts,
+	sessionStates,
 }: NodeSidebarProps) {
 	const [directory, setDirectory] = useState(sessionDirectory);
 	const [creating, setCreating] = useState(false);
@@ -568,128 +572,136 @@ export function NodeSidebar({
 						</p>
 					) : (
 						<div className="space-y-1">
-							{sessions.map((session) => (
-								<div
-									key={session.id}
-									className={cn(
-										"rounded-xl border border-border/70 bg-card shadow-sm transition-colors md:rounded-lg md:border-transparent md:bg-transparent md:shadow-none",
-										session.id === selectedSessionID
-											? "ring-1 ring-primary/30 md:bg-background md:shadow-sm md:ring-border"
-											: "md:hover:bg-muted",
-									)}
-								>
-									{renamingID === session.id ? (
-										<form onSubmit={submitRename} className="flex items-center gap-1 p-1.5">
-											<Input
-												autoFocus
-												value={renameDraft}
-												onChange={(event) => setRenameDraft(event.target.value)}
-												onKeyDown={(event) => {
-													if (event.key === "Escape") setRenamingID(null);
-												}}
-												className="h-8 font-mono text-base md:h-7 md:text-xs"
-												aria-label="Session title"
-											/>
-											<Button
-												type="submit"
-												size="icon-xs"
-												disabled={renaming || !renameDraft.trim()}
-												aria-label="Save session title"
-											>
-												{renaming ? (
-													<Loader2 className="size-3.5 animate-spin" />
-												) : (
-													<Check className="size-3.5" />
-												)}
-											</Button>
-											<Button
-												type="button"
-												size="icon-xs"
-												variant="ghost"
-												onClick={() => setRenamingID(null)}
-												aria-label="Cancel rename"
-											>
-												<X className="size-3.5" />
-											</Button>
-										</form>
-									) : (
-										<div className="flex items-start gap-1 px-1 py-1">
-											<button
-												type="button"
-												onClick={() => onSelectSession(session.id)}
-												className="flex min-w-0 flex-1 items-start gap-3 rounded-md px-2 py-2 text-left transition-colors active:bg-muted md:gap-2 md:px-1 md:py-1 md:hover:bg-muted"
-											>
-												<FolderGit2 className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-												<span className="min-w-0 flex-1">
-													<span className="block truncate text-sm font-medium">
-														{sessionTitle(session)}
-													</span>
-													<span className="block truncate font-mono text-[10px] text-muted-foreground">
-														{session.directory || "default directory"}
-													</span>
-													<span className="mt-0.5 block text-[10px] text-muted-foreground">
-														{shortTime(session.updatedAt)}
-													</span>
-												</span>
-												{pendingCounts[session.id] ? (
-													<span className="mt-0.5 inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
-														<span className="size-1.5 rounded-full bg-amber-500" />
-														{pendingCounts[session.id]}
-													</span>
-												) : null}
-												<ChevronRight className="size-4 shrink-0 self-center text-muted-foreground/50 md:hidden" />
-											</button>
-											<div className="flex shrink-0 items-center gap-0.5 pt-1.5 md:pt-0.5">
+							{sessions.map((session) => {
+								const stateClass = sessionStateClass(sessionStates[session.id]);
+								return (
+									<div
+										key={session.id}
+										className={cn(
+											"rounded-xl border border-border/70 bg-card shadow-sm transition-colors md:rounded-lg md:border-transparent md:bg-transparent md:shadow-none",
+											stateClass,
+											session.id === selectedSessionID
+												? "ring-1 ring-primary/30 md:bg-background md:shadow-sm md:ring-border"
+												: "md:hover:bg-muted",
+										)}
+									>
+										{renamingID === session.id ? (
+											<form onSubmit={submitRename} className="flex items-center gap-1 p-1.5">
+												<Input
+													autoFocus
+													value={renameDraft}
+													onChange={(event) => setRenameDraft(event.target.value)}
+													onKeyDown={(event) => {
+														if (event.key === "Escape") setRenamingID(null);
+													}}
+													className="h-8 font-mono text-base md:h-7 md:text-xs"
+													aria-label="Session title"
+												/>
 												<Button
+													type="submit"
+													size="icon-xs"
+													disabled={renaming || !renameDraft.trim()}
+													aria-label="Save session title"
+												>
+													{renaming ? (
+														<Loader2 className="size-3.5 animate-spin" />
+													) : (
+														<Check className="size-3.5" />
+													)}
+												</Button>
+												<Button
+													type="button"
 													size="icon-xs"
 													variant="ghost"
-													onClick={() => startRename(session)}
-													aria-label="Rename session"
+													onClick={() => setRenamingID(null)}
+													aria-label="Cancel rename"
 												>
-													<Pencil className="size-3.5" />
+													<X className="size-3.5" />
 												</Button>
-												{confirmDeleteID === session.id ? (
-													<>
-														<Button
-															size="icon-xs"
-															variant="destructive"
-															onClick={() => void removeSession(session.id)}
-															disabled={deletingID !== null}
-															aria-label="Confirm delete session"
-														>
-															{deletingID === session.id ? (
-																<Loader2 className="size-3.5 animate-spin" />
-															) : (
-																<Check className="size-3.5" />
-															)}
-														</Button>
-														<Button
-															size="icon-xs"
-															variant="ghost"
-															onClick={() => setConfirmDeleteID(null)}
-															aria-label="Cancel delete"
-														>
-															<X className="size-3.5" />
-														</Button>
-													</>
-												) : (
+											</form>
+										) : (
+											<div className="flex items-start gap-1 px-1 py-1">
+												<button
+													type="button"
+													onClick={() => onSelectSession(session.id)}
+													className={cn(
+														"flex min-w-0 flex-1 items-start gap-3 rounded-md px-2 py-2 text-left transition-colors active:bg-muted md:gap-2 md:px-1 md:py-1",
+														// 有状态底色时不叠 hover 背景，免得把跑马灯盖住。
+														!stateClass && "md:hover:bg-muted",
+													)}
+												>
+													<FolderGit2 className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+													<span className="min-w-0 flex-1">
+														<span className="block truncate text-sm font-medium">
+															{sessionTitle(session)}
+														</span>
+														<span className="block truncate font-mono text-[10px] text-muted-foreground">
+															{session.directory || "default directory"}
+														</span>
+														<span className="mt-0.5 block text-[10px] text-muted-foreground">
+															{shortTime(session.updatedAt)}
+														</span>
+													</span>
+													{pendingCounts[session.id] ? (
+														<span className="mt-0.5 inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
+															<span className="size-1.5 rounded-full bg-amber-500" />
+															{pendingCounts[session.id]}
+														</span>
+													) : null}
+													<ChevronRight className="size-4 shrink-0 self-center text-muted-foreground/50 md:hidden" />
+												</button>
+												<div className="flex shrink-0 items-center gap-0.5 pt-1.5 md:pt-0.5">
 													<Button
 														size="icon-xs"
 														variant="ghost"
-														onClick={() => {
-															setConfirmDeleteID(session.id);
-															setRenamingID(null);
-														}}
-														aria-label="Delete session"
+														onClick={() => startRename(session)}
+														aria-label="Rename session"
 													>
-														<Trash2 className="size-3.5" />
+														<Pencil className="size-3.5" />
 													</Button>
-												)}
+													{confirmDeleteID === session.id ? (
+														<>
+															<Button
+																size="icon-xs"
+																variant="destructive"
+																onClick={() => void removeSession(session.id)}
+																disabled={deletingID !== null}
+																aria-label="Confirm delete session"
+															>
+																{deletingID === session.id ? (
+																	<Loader2 className="size-3.5 animate-spin" />
+																) : (
+																	<Check className="size-3.5" />
+																)}
+															</Button>
+															<Button
+																size="icon-xs"
+																variant="ghost"
+																onClick={() => setConfirmDeleteID(null)}
+																aria-label="Cancel delete"
+															>
+																<X className="size-3.5" />
+															</Button>
+														</>
+													) : (
+														<Button
+															size="icon-xs"
+															variant="ghost"
+															onClick={() => {
+																setConfirmDeleteID(session.id);
+																setRenamingID(null);
+															}}
+															aria-label="Delete session"
+														>
+															<Trash2 className="size-3.5" />
+														</Button>
+													)}
+												</div>
 											</div>
-										</div>
-									)}
-								</div>
-							))}
+										)}
+									</div>
+								);
+							})}
 						</div>
 					)}
 				</div>

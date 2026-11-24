@@ -6,15 +6,18 @@ import { NodeSidebar } from "./components/node-sidebar";
 import { SessionPanel } from "./components/session-panel";
 import { useControlApi } from "./context";
 import { LatestRequestMap } from "./latest-request";
+import { affectsOverview, overviewStatesByNode } from "./session-state";
 import type {
 	ControlEvent,
 	FormAnswerValue,
 	Message,
 	NodeHealth,
 	NodeView,
+	OverviewNode,
 	PendingForm,
 	PermissionRequest,
 	Session,
+	SessionState,
 } from "./types";
 import { parseForm } from "./types";
 import { useControlEvents } from "./use-control-events";
@@ -24,6 +27,9 @@ type LifecycleAction = "start" | "restart" | "stop";
 function errorMessage(error: unknown, fallback: string): string {
 	return error instanceof Error ? error.message : fallback;
 }
+
+// 稳定的空映射：选中节点没有概览记录时复用同一个引用，避免列表无谓重渲染。
+const EMPTY_SESSION_STATES: Record<string, SessionState> = {};
 
 // mergeMessages keeps already-loaded older history while letting the newest
 // page replace tool/output state for messages it contains.
@@ -114,6 +120,8 @@ export function ControlConsole({
 	// 全局（跨会话）待审批项：手机上看不到别的会话，列表徽标是唯一入口。
 	const [pendingBySession, setPendingBySession] = useState<Record<string, string[]>>({});
 	const [pendingFormsBySession, setPendingFormsBySession] = useState<Record<string, string[]>>({});
+	// 会话执行状态以服务端总览投影为准，列表只消费快照，不自己维护状态机。
+	const [overview, setOverview] = useState<OverviewNode[]>([]);
 	const [sending, setSending] = useState(false);
 	const [interrupting, setInterrupting] = useState(false);
 	// 手机端单栏：先在节点/会话列表，选中会话后切到会话面板；桌面端忽略该状态。
@@ -135,8 +143,22 @@ export function ControlConsole({
 
 	const messagesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const sessionsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const overviewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	// 同一节点连续改色时只认最后一次，避免慢请求的回滚覆盖新选择。
 	const nodeColorRequests = useRef(new LatestRequestMap());
+
+	// 概览只影响会话行的背景，失败时保留上一份快照，不打断会话操作。
+	const refreshOverview = useCallback(async () => {
+		try {
+			setOverview(await client.getOverview());
+		} catch {
+			// 状态底色不是关键路径：断线期间沿用旧值，重连后 resync 会对账。
+		}
+	}, [client.getOverview]);
+
+	useEffect(() => {
+		void refreshOverview();
+	}, [refreshOverview]);
 
 	const refreshNodes = useCallback(async () => {
 		try {
@@ -366,10 +388,18 @@ export function ControlConsole({
 		return () => {
 			if (messagesTimer.current) clearTimeout(messagesTimer.current);
 			if (sessionsTimer.current) clearTimeout(sessionsTimer.current);
+			if (overviewTimer.current) clearTimeout(overviewTimer.current);
 		};
 	}, []);
 
 	const handleEvent = (event: ControlEvent) => {
+		// 概览由服务端投影：客户端只防抖重拉，避免复制一份状态机。
+		if (affectsOverview(event.type)) {
+			if (overviewTimer.current) clearTimeout(overviewTimer.current);
+			overviewTimer.current = setTimeout(() => {
+				void refreshOverview();
+			}, 400);
+		}
 		if (event.type.startsWith("form.")) {
 			if (event.type === "form.created") {
 				const form = parseForm(event);
@@ -443,11 +473,12 @@ export function ControlConsole({
 
 	const resync = useCallback(() => {
 		void refreshNodes();
+		void refreshOverview();
 		setSessionsRefresh((value) => value + 1);
 		setMessagesRefresh((value) => value + 1);
 		setPermissionsRefresh((value) => value + 1);
 		setFormsRefresh((value) => value + 1);
-	}, [refreshNodes]);
+	}, [refreshNodes, refreshOverview]);
 
 	const { connected } = useControlEvents(handleEvent, resync);
 
@@ -666,6 +697,7 @@ export function ControlConsole({
 	};
 
 	const refresh = () => {
+		void refreshOverview();
 		setSessionsRefresh((value) => value + 1);
 		setMessagesRefresh((value) => value + 1);
 		setPermissionsRefresh((value) => value + 1);
@@ -683,6 +715,8 @@ export function ControlConsole({
 		}
 		return counts;
 	}, [pendingBySession, pendingFormsBySession]);
+
+	const sessionStates = useMemo(() => overviewStatesByNode(overview), [overview]);
 
 	const topError = nodesError || sessionsError || messagesError;
 
@@ -710,6 +744,11 @@ export function ControlConsole({
 			onRestartOpenCode={() => runLifecycle("restart")}
 			onStopOpenCode={() => runLifecycle("stop")}
 			pendingCounts={pendingCounts}
+			sessionStates={
+				selectedNodeID
+					? (sessionStates[selectedNodeID] ?? EMPTY_SESSION_STATES)
+					: EMPTY_SESSION_STATES
+			}
 		/>
 	);
 
