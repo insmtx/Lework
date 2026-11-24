@@ -9,7 +9,7 @@ import type { Theme } from "../theme/theme";
 import { useThemedStyles } from "../theme/use-theme";
 import { useAppShell } from "./app-shell-context";
 import { RowSweep } from "./row-sweep";
-import { UnreadDot } from "./session-status-mark";
+import { UnreadDot } from "./unread-dot";
 
 /**
  * SessionRow 渲染一条会话；标题缺失时退回 id，保证永远可点。

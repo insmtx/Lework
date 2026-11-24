@@ -56,17 +56,20 @@ export interface ScreenTopBarProps {
 	onTitlePress?: () => void;
 	/** 紧跟标题的状态标记，例如会话的运行状态；不占整行，避免正文被顶下去。 */
 	status?: ReactNode;
+	/** 整行状态底色（运行中扫光），铺在内容之下，不接收触摸。 */
+	sweep?: ReactNode;
 	/** 标题右侧的额外操作，例如会话页的「停止」。 */
 	extra?: ReactNode;
 }
 
 /** ScreenTopBar 是首页之外的统一顶栏：菜单 + 名称 + 通知。 */
-export function ScreenTopBar({ title, onTitlePress, status, extra }: ScreenTopBarProps) {
+export function ScreenTopBar({ title, onTitlePress, status, sweep, extra }: ScreenTopBarProps) {
 	const insets = useSafeAreaInsets();
 	const styles = useThemedStyles(createStyles);
 
 	return (
 		<View style={[styles.bar, { paddingTop: insets.top + 4 }]}>
+			{sweep ?? null}
 			<DrawerButton />
 			<View style={styles.titleArea}>
 				<Pressable
@@ -102,6 +105,8 @@ function createStyles(theme: Theme) {
 			backgroundColor: colors.surface,
 			borderBottomWidth: 1,
 			borderBottomColor: colors.borderSubtle,
+			// 运行状态的扫光只铺在顶栏内，不压到正文。
+			overflow: "hidden",
 		},
 		iconButton: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
 		menuText: { fontSize: 20, color: colors.text },

@@ -34,6 +34,7 @@ import { useTheme, useThemedStyles } from "../../../src/theme/use-theme";
 import { useAppShell, useScreenTitle } from "../../../src/ui/app-shell-context";
 import { GlobalComposer } from "../../../src/ui/global-composer";
 import { BrandSpinner, LoadingScreen } from "../../../src/ui/loading";
+import { RowSweep } from "../../../src/ui/row-sweep";
 import { ScreenTopBar } from "../../../src/ui/top-bar";
 
 function param(value: string | string[] | undefined): string {
@@ -404,15 +405,11 @@ export default function SessionScreen() {
 			<ScreenTopBar
 				title={title}
 				onTitlePress={() => setSwitcherOpen(true)}
+				sweep={<RowSweep state={shownStatus} color={nodeColor} />}
 				status={
 					<View style={styles.topStatus}>
 						{nodeColor ? <View style={[styles.nodeDot, { backgroundColor: nodeColor }]} /> : null}
-						<SessionStatusIcon
-							state={shownStatus}
-							color={statusColor(theme, tone)}
-							nodeColor={nodeColor}
-							size={15}
-						/>
+						<SessionStatusIcon state={shownStatus} color={statusColor(theme, tone)} size={15} />
 					</View>
 				}
 				extra={

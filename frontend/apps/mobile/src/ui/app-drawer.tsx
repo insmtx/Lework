@@ -22,8 +22,8 @@ import { useThemedStyles } from "../theme/use-theme";
 import { useAppShell } from "./app-shell-context";
 import { BrandMark } from "./brand";
 import { RowSweep } from "./row-sweep";
-import { UnreadDot } from "./session-status-mark";
 import { BellButton } from "./top-bar";
+import { UnreadDot } from "./unread-dot";
 
 function ProjectGroup({
 	group,

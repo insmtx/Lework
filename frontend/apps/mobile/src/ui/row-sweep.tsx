@@ -11,6 +11,18 @@ const SWEEP_DURATION = 2400;
 /** 光带占行宽的比例：太宽像整行变色，太窄又看不出在动。 */
 const BAND_RATIO = 0.6;
 
+/** 渐变分段数：12 段在手机上已看不出阶梯，再多只是白耗视图。 */
+const GRADIENT_STOPS = 12;
+
+/** 光带峰值透明度，接近 Web 控制台 30% 的色带浓度。 */
+const PEAK_OPACITY = 0.28;
+
+// 正弦曲线让两端自然淡出：中间最亮，边缘归零，扫过时不会出现硬边。
+const STOP_OPACITIES = Array.from(
+	{ length: GRADIENT_STOPS },
+	(_, index) => PEAK_OPACITY * Math.sin((Math.PI * (index + 0.5)) / GRADIENT_STOPS) ** 2,
+);
+
 /**
  * RowSweep 给会话行铺整行状态底色，替代原先行首的小色块。
  *
@@ -18,7 +30,7 @@ const BAND_RATIO = 0.6;
  * error 铺静态淡红底——会动的底色会被读成“还在跑”。行本身只需 `overflow:
  * hidden`，光带不会盖住文字（层级在内容之下，且不接收触摸）。
  */
-export function RowSweep({ state, color }: { state?: SessionState; color?: string | null }) {
+export function RowSweep({ state, color }: { state?: SessionState | null; color?: string | null }) {
 	const theme = useTheme();
 	const resolved = state ?? null;
 	const kind = rowSweepKind(resolved);
@@ -90,10 +102,14 @@ function SweepBand({ label, tint }: { label: string; tint: string }) {
 						],
 					}}
 				>
-					{/* 三段同色不同透明度，伪造两端渐隐，省掉一个渐变依赖。 */}
-					<View style={{ flex: 1, backgroundColor: tint, opacity: 0.08 }} />
-					<View style={{ flex: 2, backgroundColor: tint, opacity: 0.22 }} />
-					<View style={{ flex: 1, backgroundColor: tint, opacity: 0.08 }} />
+					{/* 每段同色不同透明度，拼成两端淡出的半透明渐变。 */}
+					{STOP_OPACITIES.map((opacity, index) => (
+						<View
+							// biome-ignore lint/suspicious/noArrayIndexKey: 渐变分段固定且无状态
+							key={`stop-${index}`}
+							style={{ flex: 1, backgroundColor: tint, opacity }}
+						/>
+					))}
 				</Animated.View>
 			) : null}
 		</View>
