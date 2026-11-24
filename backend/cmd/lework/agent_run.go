@@ -961,6 +961,15 @@ func openCodeEnv(cfgEnv map[string]string) (map[string]string, string, error) {
 		return nil, "", err
 	}
 	if generated {
+		// Reuse the persisted password so an agent restart keeps the endpoint
+		// usable by a TUI that still holds the previous value. A failure here
+		// is not fatal: the agent can still serve with a fresh password.
+		saved, err := servicefile.LoadOrCreatePassword(password)
+		if err != nil {
+			logs.Warnf("lework-agent: persist opencode password: %s", redact(err))
+		} else {
+			password = saved
+		}
 		env["OPENCODE_SERVER_PASSWORD"] = password
 	}
 	return env, password, nil

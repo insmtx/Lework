@@ -91,8 +91,9 @@ lework opencode [directory] [--session <id>] [--continue] [--opencode <path>]
 
 ### 4.3 生命周期与并发
 
-- agent 停止 → TUI 失去服务；agent 重启且未固定密码时旧 TUI 需要重开。
-  建议在 `agent.yaml` 固定 `OPENCODE_PASSWORD`。
+- agent 停止 → TUI 失去服务；agent 重启时沿用 `$XDG_STATE_HOME/lework/opencode-password`
+  中持久化的生成密码（0600），TUI 自带的事件流重试会自动重连。
+  手动配置的 `OPENCODE_PASSWORD` 优先于该文件。
 - 同一 service 可以同时有 TUI 和控制面两个客户端：
   - `permission.asked` 广播给所有客户端，先回复者生效，另一个回复会 404；
   - PTY 是单控制器，TUI 与网页终端不应同时写同一个 PTY；

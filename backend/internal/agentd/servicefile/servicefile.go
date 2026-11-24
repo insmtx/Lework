@@ -21,6 +21,11 @@ import (
 // without additional discovery.
 const fileName = "opencode-service.json"
 
+// passwordFileName persists a generated password across agent restarts. A
+// running TUI keeps the password from its own environment, so a fresh value
+// would leave it retrying forever with "Authentication required".
+const passwordFileName = "opencode-password"
+
 // Info is the published endpoint and credential of the agent-owned OpenCode
 // service. PID identifies the agent process that wrote it, so a second agent
 // does not remove another instance's file on shutdown.
@@ -64,10 +69,6 @@ func Write(info Info) error {
 	if err != nil {
 		return err
 	}
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("create service file directory %s: %w", dir, err)
-	}
 
 	data, err := json.MarshalIndent(info, "", "  ")
 	if err != nil {
@@ -75,22 +76,64 @@ func Write(info Info) error {
 	}
 	data = append(data, '\n')
 
-	tmp, err := os.CreateTemp(dir, ".opencode-service-*.tmp")
+	if err := writeAtomic(path, data); err != nil {
+		return fmt.Errorf("write service file %s: %w", path, err)
+	}
+	return nil
+}
+
+// LoadOrCreatePassword returns the persisted generated password, storing
+// candidate on first use. It exists so a restarted agent keeps the same
+// credential and an attached TUI can reconnect without being relaunched.
+func LoadOrCreatePassword(candidate string) (string, error) {
+	if candidate == "" {
+		return "", errors.New("servicefile: password is required")
+	}
+	path, err := Path()
 	if err != nil {
-		return fmt.Errorf("create temporary service file: %w", err)
+		return "", err
+	}
+	passwordPath := filepath.Join(filepath.Dir(path), passwordFileName)
+
+	data, err := os.ReadFile(passwordPath)
+	if err == nil {
+		if saved := strings.TrimSpace(string(data)); saved != "" {
+			return saved, nil
+		}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return "", fmt.Errorf("read opencode password %s: %w", passwordPath, err)
+	}
+
+	if err := writeAtomic(passwordPath, []byte(candidate+"\n")); err != nil {
+		return "", fmt.Errorf("store opencode password %s: %w", passwordPath, err)
+	}
+	return candidate, nil
+}
+
+// writeAtomic replaces path with data through a 0600 temp file in the same
+// directory, so a concurrent reader never observes a partial value.
+func writeAtomic(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("create state directory %s: %w", dir, err)
+	}
+
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return fmt.Errorf("create temporary file: %w", err)
 	}
 	tmpPath := tmp.Name()
 	defer func() { _ = os.Remove(tmpPath) }()
 
 	if _, err := tmp.Write(data); err != nil {
 		_ = tmp.Close()
-		return fmt.Errorf("write temporary service file: %w", err)
+		return fmt.Errorf("write temporary file: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("close temporary service file: %w", err)
+		return fmt.Errorf("close temporary file: %w", err)
 	}
 	if err := os.Rename(tmpPath, path); err != nil {
-		return fmt.Errorf("replace service file %s: %w", path, err)
+		return fmt.Errorf("replace %s: %w", path, err)
 	}
 	return nil
 }

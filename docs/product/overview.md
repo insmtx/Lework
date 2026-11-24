@@ -183,8 +183,8 @@ lework opencode [directory]
 ```
 
 要求 agent 与命令使用同一 OS 用户；systemd 系统服务（root）发布的 0600 文件
-普通用户读不到。agent 停止后 TUI 会失去服务；若需要跨 agent 重启复用同一
-TUI，应在 `agent.yaml` 固定 `OPENCODE_PASSWORD`。
+普通用户读不到。agent 重启时沿用持久化的生成密码，TUI 自带的事件流重连会
+自动恢复；手动配置的 `OPENCODE_PASSWORD` 仍以配置为准。
 
 ### 5.2 打开项目与 Session
 

@@ -49,6 +49,44 @@ func TestWriteReadRoundTrip(t *testing.T) {
 	}
 }
 
+func TestLoadOrCreatePasswordPersistsValue(t *testing.T) {
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+
+	got, err := LoadOrCreatePassword("first")
+	if err != nil {
+		t.Fatalf("LoadOrCreatePassword() error = %v", err)
+	}
+	if got != "first" {
+		t.Fatalf("LoadOrCreatePassword() = %q, want first", got)
+	}
+
+	again, err := LoadOrCreatePassword("second")
+	if err != nil {
+		t.Fatalf("LoadOrCreatePassword() second error = %v", err)
+	}
+	if again != "first" {
+		t.Fatalf("LoadOrCreatePassword() = %q, want the persisted first", again)
+	}
+
+	path := filepath.Join(stateHome, "lework", "opencode-password")
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat password file: %v", err)
+	}
+	if got := fileInfo.Mode().Perm(); got != 0o600 {
+		t.Fatalf("password file mode = %o, want 600", got)
+	}
+}
+
+func TestLoadOrCreatePasswordRejectsEmptyCandidate(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+
+	if _, err := LoadOrCreatePassword(""); err == nil {
+		t.Fatal("LoadOrCreatePassword() error = nil, want a validation error")
+	}
+}
+
 func TestWriteRejectsMissingURLOrPassword(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 

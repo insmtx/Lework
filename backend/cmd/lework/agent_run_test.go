@@ -25,6 +25,9 @@ func clearOpenCodePasswordEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("OPENCODE_PASSWORD", "")
 	t.Setenv("OPENCODE_SERVER_PASSWORD", "")
+	// openCodeEnv persists generated passwords under the per-user state dir;
+	// keep each test off the real one.
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 }
 
 func TestResolveOpenCodePasswordPrefersOpenCodePassword(t *testing.T) {
@@ -191,6 +194,31 @@ func TestOpenCodeEnvDoesNotMutateInput(t *testing.T) {
 	env["OPENCODE_LOG"] = "trace"
 	if input["OPENCODE_LOG"] != "debug" {
 		t.Fatalf("mutating the copy changed the input: %v", input)
+	}
+}
+
+func TestOpenCodeEnvReusesPersistedGeneratedPassword(t *testing.T) {
+	clearOpenCodePasswordEnv(t)
+
+	env, password, err := openCodeEnv(map[string]string{})
+	if err != nil {
+		t.Fatalf("openCodeEnv() error = %v, want nil", err)
+	}
+	if env["OPENCODE_SERVER_PASSWORD"] != password {
+		t.Fatalf("env password = %q, want %q", env["OPENCODE_SERVER_PASSWORD"], password)
+	}
+
+	// A restart must reuse the stored value, otherwise an already-open TUI
+	// loops on 401 after the agent comes back.
+	env, again, err := openCodeEnv(map[string]string{})
+	if err != nil {
+		t.Fatalf("openCodeEnv() second call error = %v, want nil", err)
+	}
+	if again != password {
+		t.Fatalf("second password = %q, want the persisted %q", again, password)
+	}
+	if env["OPENCODE_SERVER_PASSWORD"] != password {
+		t.Fatalf("second env password = %q, want %q", env["OPENCODE_SERVER_PASSWORD"], password)
 	}
 }
 
