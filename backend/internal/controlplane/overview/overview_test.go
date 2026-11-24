@@ -339,7 +339,7 @@ func TestSnapshotFromFreshOwnerInitializesNode(t *testing.T) {
 		t.Fatalf("snapshot = %+v, want the stamped snapshot applied on an empty index", snap)
 	}
 	// 快照建立的水位必须与快照一致，后续旧序号事件才会被拒绝。
-	if _, owner, seq := idx.SnapshotNodeWithWatermark("node_1"); owner != "owner-a" || seq != 4 {
+	if _, _, owner, seq := idx.SnapshotNodeWithWatermark("node_1"); owner != "owner-a" || seq != 4 {
 		t.Fatalf("watermark = %q/%d, want owner-a/4", owner, seq)
 	}
 
@@ -446,7 +446,7 @@ func TestUnstampedEventsBypassAndPreserveWatermark(t *testing.T) {
 	})
 	idx.Apply(event.Event{NodeID: "node_1", SessionID: "ses_2", Type: "session.created", Time: at})
 
-	if _, owner, seq := idx.SnapshotNodeWithWatermark("node_1"); owner != "owner-a" || seq != 7 {
+	if _, _, owner, seq := idx.SnapshotNodeWithWatermark("node_1"); owner != "owner-a" || seq != 7 {
 		t.Fatalf("watermark = %q/%d after an unstamped event, want owner-a/7", owner, seq)
 	}
 
@@ -466,10 +466,109 @@ func TestUnstampedEventsBypassAndPreserveWatermark(t *testing.T) {
 	if len(snap) != 1 || len(snap[0].Sessions) != 1 || snap[0].Sessions[0].SessionID != "ses_3" {
 		t.Fatalf("snapshot = %+v, want the unstamped snapshot applied and the stale one ignored", snap)
 	}
-	if _, owner, seq := idx.SnapshotNodeWithWatermark("node_1"); owner != "owner-a" || seq != 7 {
+	if _, _, owner, seq := idx.SnapshotNodeWithWatermark("node_1"); owner != "owner-a" || seq != 7 {
 		t.Fatalf("watermark = %q/%d after an unstamped snapshot, want owner-a/7", owner, seq)
 	}
-	if _, owner, seq := idx.SnapshotNodeWithWatermark("node_missing"); owner != "" || seq != 0 {
+	if _, _, owner, seq := idx.SnapshotNodeWithWatermark("node_missing"); owner != "" || seq != 0 {
 		t.Fatalf("watermark for unknown node = %q/%d, want zero", owner, seq)
+	}
+}
+
+func formEvent(nodeID, sessionID, eventType, formID string) event.Event {
+	data, _ := json.Marshal(map[string]any{"id": formID})
+	if eventType == "form.created" {
+		data, _ = json.Marshal(map[string]any{"form": map[string]any{"id": formID, "sessionID": sessionID}})
+	}
+	return event.Event{NodeID: nodeID, SessionID: sessionID, Type: eventType, Data: data}
+}
+
+func TestApplyTracksSessionForms(t *testing.T) {
+	idx := NewIndex()
+	idx.Apply(formEvent("node_1", "ses_1", "form.created", "frm_1"))
+	idx.Apply(formEvent("node_1", "ses_1", "form.created", "frm_1"))
+
+	ses := idx.Snapshot()[0].Sessions[0]
+	if ses.State != StateWaitingPermission || ses.PendingForms != 1 {
+		t.Fatalf("state = %q forms = %d", ses.State, ses.PendingForms)
+	}
+}
+
+func TestSessionFormReplyKeepsPermissionWaiting(t *testing.T) {
+	idx := NewIndex()
+	perm, _ := json.Marshal(map[string]string{"id": "perm_1"})
+	idx.Apply(event.Event{NodeID: "node_1", SessionID: "ses_1", Type: "permission.asked", Data: perm})
+	idx.Apply(formEvent("node_1", "ses_1", "form.created", "frm_1"))
+	idx.Apply(formEvent("node_1", "ses_1", "form.replied", "frm_1"))
+
+	ses := idx.Snapshot()[0].Sessions[0]
+	if ses.State != StateWaitingPermission || ses.PendingForms != 0 || ses.Pending != 1 {
+		t.Fatalf("session = %+v", ses)
+	}
+}
+
+func TestExecutionEndClearsSessionForms(t *testing.T) {
+	idx := NewIndex()
+	idx.Apply(formEvent("node_1", "ses_1", "form.created", "frm_1"))
+	idx.Apply(event.Event{NodeID: "node_1", SessionID: "ses_1", Type: "session.execution.succeeded"})
+
+	ses := idx.Snapshot()[0].Sessions[0]
+	if ses.State != StateIdle || ses.PendingForms != 0 {
+		t.Fatalf("session = %+v", ses)
+	}
+}
+
+func TestApplyTracksGlobalFormsWithoutSession(t *testing.T) {
+	idx := NewIndex()
+	idx.Apply(formEvent("node_1", "global", "form.created", "frm_1"))
+
+	snap := idx.Snapshot()
+	if len(snap) != 1 || snap[0].NodeID != "node_1" {
+		t.Fatalf("snapshot = %+v", snap)
+	}
+	if len(snap[0].Sessions) != 0 {
+		t.Fatalf("global form created a session: %+v", snap[0].Sessions)
+	}
+	if snap[0].PendingForms != 1 {
+		t.Fatalf("node pending_forms = %d, want 1", snap[0].PendingForms)
+	}
+
+	idx.Apply(formEvent("node_1", "global", "form.cancelled", "frm_1"))
+	// global-only 节点在最后一张表单处理后没有可展示内容，直接移出快照；
+	// 节点本身仍由持久化记录返回给浏览器。
+	if snap := idx.Snapshot(); len(snap) != 0 {
+		t.Fatalf("snapshot = %+v, want empty", snap)
+	}
+}
+
+func TestResyncClearsGlobalForms(t *testing.T) {
+	idx := NewIndex()
+	idx.Apply(formEvent("node_1", "global", "form.created", "frm_1"))
+	idx.Apply(event.Event{NodeID: "node_1", Type: "agent.resync_required"})
+	if snap := idx.Snapshot(); len(snap) != 0 {
+		t.Fatalf("snapshot = %+v, want empty", snap)
+	}
+}
+
+func TestSnapshotCarriesGlobalFormCount(t *testing.T) {
+	idx := NewIndex()
+	at := time.Now()
+	payload, _ := json.Marshal(struct {
+		Sessions     []Session `json:"sessions"`
+		PendingForms int       `json:"pending_forms"`
+	}{PendingForms: 2})
+	idx.Apply(event.Event{NodeID: "node_1", Type: SnapshotEvent, Data: payload, Time: at})
+
+	snap := idx.Snapshot()
+	if len(snap) != 1 || snap[0].PendingForms != 2 || len(snap[0].Sessions) != 0 {
+		t.Fatalf("snapshot = %+v", snap)
+	}
+}
+
+func TestSnapshotNodeWithWatermarkReturnsGlobalCount(t *testing.T) {
+	idx := NewIndex()
+	idx.Apply(formEvent("node_1", "global", "form.created", "frm_1"))
+	sessions, forms, owner, seq := idx.SnapshotNodeWithWatermark("node_1")
+	if len(sessions) != 0 || forms != 1 || owner != "" || seq != 0 {
+		t.Fatalf("sessions=%v forms=%d owner=%q seq=%d", sessions, forms, owner, seq)
 	}
 }
