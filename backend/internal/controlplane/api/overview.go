@@ -10,10 +10,11 @@ import (
 
 // overviewNodeView 是总览里的一个节点：派生会话状态 + 存储心跳推导的在线状态。
 type overviewNodeView struct {
-	NodeID    string             `json:"node_id"`
-	Name      string             `json:"name"`
-	Connected bool               `json:"connected"`
-	Sessions  []overview.Session `json:"sessions"`
+	NodeID       string             `json:"node_id"`
+	Name         string             `json:"name"`
+	Connected    bool               `json:"connected"`
+	PendingForms int                `json:"pending_forms"`
+	Sessions     []overview.Session `json:"sessions"`
 }
 
 type overviewResponse struct {
@@ -75,6 +76,7 @@ func (a *API) handleOverview(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		view.Sessions = projected.Sessions
+		view.PendingForms = projected.PendingForms
 	}
 
 	// 断线节点的会话状态是断线前的快照，继续报 running 会让用户白等。
