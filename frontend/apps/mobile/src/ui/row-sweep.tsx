@@ -1,6 +1,6 @@
 import type { SessionState } from "@lework/api";
 import { LinearGradient } from "expo-linear-gradient";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { AccessibilityInfo, Animated, Easing, StyleSheet, View } from "react-native";
 
 import { rowSweepKind, statusLabel } from "../session/status";
@@ -14,6 +14,39 @@ const BAND_RATIO = 0.8;
 
 /** 光带峰值透明度，对齐 Web 控制台 30% 的色带浓度。 */
 const PEAK_OPACITY = 0.3;
+
+/**
+ * clock 是所有扫光行共用的进度。
+ *
+ * 每行各起一条 loop 时，屏幕上有几个运行中的会话就有几条原生动画；共用一条
+ * 后只剩一条，而且各行进度同步，读起来是“同一批任务在跑”而不是一堆各扫各的
+ * 光带。无人订阅时停掉，空闲列表不烧电。
+ */
+const clock = new Animated.Value(0);
+let clockUsers = 0;
+let clockLoop: Animated.CompositeAnimation | null = null;
+
+function subscribeClock(): () => void {
+	if (clockUsers === 0) {
+		clock.setValue(0);
+		clockLoop = Animated.loop(
+			Animated.timing(clock, {
+				toValue: 1,
+				duration: SWEEP_DURATION,
+				easing: Easing.linear,
+				useNativeDriver: true,
+			}),
+		);
+		clockLoop.start();
+	}
+	clockUsers += 1;
+	return () => {
+		clockUsers -= 1;
+		if (clockUsers > 0) return;
+		clockLoop?.stop();
+		clockLoop = null;
+	};
+}
 
 /**
  * RowSweep 给会话行铺整行状态底色，替代原先行首的小色块。
@@ -49,24 +82,13 @@ export function RowSweep({ state, color }: { state?: SessionState | null; color?
 
 function SweepBand({ label, tint }: { label: string; tint: string }) {
 	const [width, setWidth] = useState(0);
-	const progress = useRef(new Animated.Value(0)).current;
 	const reduceMotion = useReduceMotion();
 	const band = Math.round(width * BAND_RATIO);
 
 	useEffect(() => {
-		if (width === 0 || reduceMotion) return;
-		progress.setValue(0);
-		const loop = Animated.loop(
-			Animated.timing(progress, {
-				toValue: 1,
-				duration: SWEEP_DURATION,
-				easing: Easing.linear,
-				useNativeDriver: true,
-			}),
-		);
-		loop.start();
-		return () => loop.stop();
-	}, [progress, reduceMotion, width]);
+		if (reduceMotion) return;
+		return subscribeClock();
+	}, [reduceMotion]);
 
 	return (
 		<View
@@ -89,7 +111,7 @@ function SweepBand({ label, tint }: { label: string; tint: string }) {
 							{
 								translateX: reduceMotion
 									? (width - band) / 2
-									: progress.interpolate({ inputRange: [0, 1], outputRange: [-band, width] }),
+									: clock.interpolate({ inputRange: [0, 1], outputRange: [-band, width] }),
 							},
 						],
 					}}
