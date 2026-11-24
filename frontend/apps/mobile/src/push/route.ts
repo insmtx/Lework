@@ -7,11 +7,29 @@ import { sessionRoute } from "../config";
 export function routeFromNotification(data: unknown): string | null {
 	if (!data || typeof data !== "object") return null;
 
-	const payload = data as { node?: unknown; session?: unknown; permission_id?: unknown };
+	const payload = data as {
+		node?: unknown;
+		session?: unknown;
+		permission_id?: unknown;
+		form_id?: unknown;
+		global?: unknown;
+	};
 	if (typeof payload.node !== "string" || payload.node === "") return null;
 	if (typeof payload.session !== "string" || payload.session === "") return null;
 
+	// global 表单没有会话页可跳，统一落到待处理列表。
+	if (
+		payload.global === true ||
+		payload.global === "true" ||
+		payload.session === "global"
+	) {
+		return "/pending";
+	}
+
 	const base = sessionRoute(payload.node, payload.session);
+	if (typeof payload.form_id === "string" && payload.form_id !== "") {
+		return `${base}?form=${encodeURIComponent(payload.form_id)}`;
+	}
 	if (typeof payload.permission_id === "string" && payload.permission_id !== "") {
 		return `${base}?permission=${encodeURIComponent(payload.permission_id)}`;
 	}
