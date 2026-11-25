@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, useState } from "react";
 import type {
 	FlatList,
 	LayoutChangeEvent,
@@ -6,9 +6,9 @@ import type {
 	NativeSyntheticEvent,
 } from "react-native";
 
-import { bottomOffset, followOffset, isNearBottom } from "./scroll";
+import { bottomOffset, followOffset, isFarFromBottom, isNearBottom } from "./scroll";
 
-/** 超过这段时间没有新的滚动事件，就认为上一次手指拖动已经结束。 */
+/** 超过这段时间没有新的滚动事件，就认为用户这一次拖动/惯性已经结束。 */
 const GESTURE_IDLE_MS = 300;
 
 /** AutoFollowHandlers 是挂到列表上的滚动事件集合。 */
@@ -25,15 +25,19 @@ export interface AutoFollowHandlers {
 /**
  * useAutoFollow 让消息流稳定地跟随底部。
  *
- * 不用 FlatList.scrollToEnd：它在没有 getItemLayout 的变高列表里按已测量行
- * 的平均高度估算末尾（RN 源码注明这样会 janky），而滚动本身又会改变测量窗口，
- * 流式期间会形成「滚动 → 重新测量 → 内容尺寸变化 → 再滚动」的自激循环，表现
- * 为上下乱跳。这里改为用 onContentSizeChange 给的真实高度贴底。
+ * 不用 FlatList.scrollToEnd 做流式跟随：它在没有 getItemLayout 的变高列表里按
+ * 已测量行的平均高度估算末尾（RN 源码注明这样会 janky），而滚动本身又会改变
+ * 测量窗口，流式期间会形成「滚动 → 重新测量 → 内容尺寸变化 → 再滚动」的自激
+ * 循环，表现为上下乱跳。这里改为用 onContentSizeChange 给的真实高度贴底。
  *
- * 跟随状态只看每一帧的滚动位置是否贴底，不依赖「拖动结束/惯性结束」事件的
- * 完整性：native 在「按住正在惯性的列表再松手」或「点一下让它停住」时可能
- * 不发 end 事件，用标志位判断会让跟随永久失效。拖动标志只用来避免在手指
- * 按住时抢滚动，并用静默时长兜底。
+ * 但首屏落底必须用 scrollToEnd：没有 getItemLayout 时虚拟列表会把尾部 spacer
+ * 限制在已测量范围，onContentSizeChange 报的高度只覆盖已测量行；按它算偏移会
+ * 停在半路。scrollToEnd 按平均行高估算真正末尾，一次到底，之后的内容增长再交
+ * 给真实高度逐帧追。
+ *
+ * 跟随状态只看用户发起的手势帧（拖动与其惯性），程序化贴底产生的帧不参与判断：
+ * 首屏分批测量时，一次贴底的中间帧可能暂时不在底部，按它判断会把跟随误关，
+ * 消息流就停在半路。手势可能漏发结束事件，用 300ms 静默看门狗兜底。
  *
  * 贴底只向底部追：内容高度因虚拟列表重新测量而变小时不主动回滚，交给系统
  * 把偏移夹回新的底部，避免和流式增长对拉出抖动。
@@ -52,33 +56,46 @@ export function useAutoFollow<T>({
 	const listRef = useRef<FlatList<T>>(null);
 	const contentHeight = useRef(0);
 	const viewportHeight = useRef(0);
+	// 离底部超过半屏时露出「回到底部」；滚动帧里更新，避免小幅上滑就弹按钮。
+	const [farFromBottom, setFarFromBottom] = useState(false);
 	// 同一帧内可能连续收到内容尺寸与滚动事件，同步镜像保证读到最新意图。
 	const followingRef = useRef(following);
 	followingRef.current = following;
 	// 手指是否按在列表上；只用来避免用户拖动时抢滚动。
 	const dragging = useRef(false);
+	// 是否处于用户发起的滚动（拖动或惯性）；只有这些帧能改变跟随意图。
+	const gesture = useRef(false);
 	const lastScrollAt = useRef(0);
 	// 最近一次已知的滚动位置（含程序化滚动），用来判断是否还需要往底部追。
 	const lastOffset = useRef(0);
+	// 下一次内容长过一屏时用 scrollToEnd 落到绝对底部（首屏与主动跳转）。
+	const wantBottom = useRef(false);
 
-	// native 可能漏发 onScrollEndDrag，用「一段时间没有滚动事件」兜底解除拖动状态。
-	const releaseStaleDrag = useCallback(() => {
-		if (!dragging.current) return;
+	// native 可能漏发 onScrollEndDrag，用「一段时间没有滚动事件」兜底解除手势状态。
+	const releaseStaleGesture = useCallback(() => {
+		if (!gesture.current && !dragging.current) return;
 		if (Date.now() - lastScrollAt.current < GESTURE_IDLE_MS) return;
+		gesture.current = false;
 		dragging.current = false;
 	}, []);
 
 	const applyScroll = useCallback(() => {
-		releaseStaleDrag();
+		releaseStaleGesture();
 		if (!followingRef.current || dragging.current) return;
 		if (viewportHeight.current <= 0 || contentHeight.current <= 0) return;
+		// 内容长过一屏才消费：空列表和不足一屏的内容本来就贴着底部，不用滚。
+		if (wantBottom.current && contentHeight.current > viewportHeight.current) {
+			wantBottom.current = false;
+			listRef.current?.scrollToEnd({ animated: false });
+			return;
+		}
 		const target = bottomOffset(contentHeight.current, viewportHeight.current);
 		const next = followOffset(target, lastOffset.current);
 		if (next === null) return;
 		// 自动贴底不做动画：流式增量会让动画不断被重启，而且动画的中间帧
 		// 会被误当成用户滚动。瞬时落到底反而更稳。
 		listRef.current?.scrollToOffset({ offset: next, animated: false });
-	}, [releaseStaleDrag]);
+	}, [releaseStaleGesture]);
 
 	const applyFollowing = useCallback(
 		(next: boolean) => {
@@ -91,20 +108,23 @@ export function useAutoFollow<T>({
 
 	const handleScroll = useCallback(
 		(event: NativeSyntheticEvent<NativeScrollEvent>) => {
+			// 先按上一帧的时间判断手势是否已经静默结束，再刷新时间戳。
+			releaseStaleGesture();
 			const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
 			lastOffset.current = contentOffset.y;
 			lastScrollAt.current = Date.now();
-			// 程序化贴底永远落在底部，所以不必区分手势来源：只看这一帧是否贴底，
-			// 即使 native 漏发 end 事件，跟随状态也不会失真。
-			const next = isNearBottom({
+			const metrics = {
 				offsetY: contentOffset.y,
 				contentHeight: contentSize.height,
 				viewportHeight: layoutMeasurement.height,
-			});
-			applyFollowing(next);
-			if (next) onAtBottom?.();
+			};
+			const atBottom = isNearBottom(metrics);
+			setFarFromBottom(isFarFromBottom(metrics));
+			// 程序化贴底永远落在底部；首屏测量中的中间帧不能把跟随关掉。
+			if (gesture.current) applyFollowing(atBottom);
+			if (atBottom) onAtBottom?.();
 		},
-		[applyFollowing, onAtBottom],
+		[applyFollowing, onAtBottom, releaseStaleGesture],
 	);
 
 	const handlers: AutoFollowHandlers = {
@@ -120,36 +140,51 @@ export function useAutoFollow<T>({
 		onScroll: handleScroll,
 		onScrollBeginDrag: () => {
 			dragging.current = true;
+			gesture.current = true;
+			// 用户已经接管滚动，别再把他往底部拽。
+			wantBottom.current = false;
 			lastScrollAt.current = Date.now();
 		},
 		onScrollEndDrag: () => {
 			dragging.current = false;
-			// 拖动期间内容可能已经变长；松手时仍贴底就补一次对齐。
-			applyScroll();
+			// 惯性可能紧接着开始，手势状态在惯性结束或静默兜底时才解除。
+			lastScrollAt.current = Date.now();
 		},
 		onMomentumScrollBegin: () => {
 			// 惯性开始意味着拖动已经结束，只保留最终的贴底对齐。
 			dragging.current = false;
+			gesture.current = true;
+			lastScrollAt.current = Date.now();
 		},
 		onMomentumScrollEnd: () => {
+			gesture.current = false;
+			lastScrollAt.current = Date.now();
 			applyScroll();
 		},
 	};
 
-	/** follow 恢复跟随并立即贴底。 */
+	/** follow 恢复跟随并立即落到绝对底部。 */
 	const follow = useCallback(() => {
+		// 主动回到最新一条时，之前的拖动与未消化的落底意图都要让位。
+		dragging.current = false;
+		gesture.current = false;
 		applyFollowing(true);
+		wantBottom.current = true;
+		setFarFromBottom(false);
 		applyScroll();
 	}, [applyFollowing, applyScroll]);
 
-	/** reset 在切换会话时调用：恢复跟随，等新内容测量完成后由尺寸事件贴底。 */
+	/** reset 在切换会话时调用：恢复跟随，等首次内容长过后由尺寸事件落到底部。 */
 	const reset = useCallback(() => {
 		dragging.current = false;
+		gesture.current = false;
 		lastScrollAt.current = 0;
-		// 新会话的滚动位置未知，从 0 起算；首帧尺寸事件会把它带到真正的底部。
+		// 新会话的滚动位置未知，从 0 起算；首次内容尺寸事件会把它带到真正的底部。
 		lastOffset.current = 0;
+		wantBottom.current = true;
+		setFarFromBottom(false);
 		applyFollowing(true);
 	}, [applyFollowing]);
 
-	return { listRef, handlers, follow, reset };
+	return { listRef, handlers, follow, reset, farFromBottom };
 }

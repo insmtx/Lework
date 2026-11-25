@@ -22,6 +22,15 @@ export function isNearBottom(
 }
 
 /**
+ * isFarFromBottom 判断是否离底部超过半屏，用于露出「回到底部」按钮。
+ *
+ * 比贴底判定宽得多：小幅上滑就弹按钮会挡住内容，也会让人误以为消息流断了。
+ */
+export function isFarFromBottom(metrics: ScrollMetrics): boolean {
+	return !isNearBottom(metrics, metrics.viewportHeight / 2);
+}
+
+/**
  * bottomOffset 返回贴底时应滚动到的偏移。
  *
  * 用真实内容高度与视口高度算，而不是 FlatList.scrollToEnd：后者在没有

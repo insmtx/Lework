@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { bottomOffset, followOffset, isNearBottom } from "./scroll";
+import { bottomOffset, followOffset, isFarFromBottom, isNearBottom } from "./scroll";
 
 describe("isNearBottom", () => {
 	it("停在最底部时算贴底", () => {
@@ -21,6 +21,24 @@ describe("isNearBottom", () => {
 
 	it("余量恰好等于阈值时仍算贴底", () => {
 		expect(isNearBottom({ offsetY: 552, contentHeight: 1000, viewportHeight: 400 })).toBe(true);
+	});
+});
+
+describe("isFarFromBottom", () => {
+	it("离底部超过半屏时露出回到底部", () => {
+		expect(isFarFromBottom({ offsetY: 0, contentHeight: 1000, viewportHeight: 400 })).toBe(true);
+	});
+
+	it("离底部不足半屏时不弹按钮", () => {
+		expect(isFarFromBottom({ offsetY: 700, contentHeight: 1000, viewportHeight: 400 })).toBe(false);
+	});
+
+	it("恰好半屏不弹，避免临界抖动", () => {
+		expect(isFarFromBottom({ offsetY: 400, contentHeight: 1000, viewportHeight: 400 })).toBe(false);
+	});
+
+	it("内容不足一屏时不弹", () => {
+		expect(isFarFromBottom({ offsetY: 0, contentHeight: 120, viewportHeight: 400 })).toBe(false);
 	});
 });
 

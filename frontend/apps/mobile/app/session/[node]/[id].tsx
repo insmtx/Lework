@@ -290,6 +290,7 @@ export default function SessionScreen() {
 		handlers: listHandlers,
 		follow: followLatest,
 		reset: resetFollow,
+		farFromBottom,
 	} = useAutoFollow<Message>({
 		following,
 		setFollowing,
@@ -452,7 +453,7 @@ export default function SessionScreen() {
 					}
 				/>
 
-				{hasNewBelow ? (
+				{hasNewBelow || farFromBottom ? (
 					<View style={styles.newContentWrap} pointerEvents="box-none">
 						<Pressable
 							style={styles.newContent}
@@ -461,7 +462,7 @@ export default function SessionScreen() {
 								followLatest();
 							}}
 						>
-							<Text style={styles.newContentText}>有新内容 ·</Text>
+							<Text style={styles.newContentText}>{hasNewBelow ? "有新内容 ·" : "回到底部"}</Text>
 						</Pressable>
 					</View>
 				) : null}
