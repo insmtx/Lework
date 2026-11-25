@@ -56,17 +56,17 @@ export function statusGlyph(state: SessionStatus | null): string {
  * rowSweepKind 决定会话行铺什么背景。
  *
  * 运行中铺会动的扫光；等待你处理时把同一条光带**停在行尾**：看得出是同一
- * 状态的延续，又不会动——会动的底色会被读成“还在跑”。出错铺静态淡红，其余
- * 不铺，避免整个列表都在发光。
+ * 状态的延续，又不会动——会动的底色会被读成“还在跑”。出错是跑到一半被打断，
+ * 光带停在行中间呼吸；其余不铺，避免整个列表都在发光。
  */
-export function rowSweepKind(state: SessionStatus | null): "sweep" | "rest" | "static" | null {
+export function rowSweepKind(state: SessionStatus | null): "sweep" | "rest" | "breathe" | null {
 	switch (state) {
 		case "running":
 			return "sweep";
 		case "waiting_permission":
 			return "rest";
 		case "error":
-			return "static";
+			return "breathe";
 		default:
 			return null;
 	}

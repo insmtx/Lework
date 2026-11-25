@@ -45,10 +45,10 @@ describe("statusGlyph", () => {
 });
 
 describe("rowSweepKind", () => {
-	it("运行扫光、等待停在行尾、出错静态底色，其余不铺", () => {
+	it("运行扫光、等待停在行尾、出错呼吸，其余不铺", () => {
 		expect(rowSweepKind("running")).toBe("sweep");
 		expect(rowSweepKind("waiting_permission")).toBe("rest");
-		expect(rowSweepKind("error")).toBe("static");
+		expect(rowSweepKind("error")).toBe("breathe");
 		expect(rowSweepKind("idle")).toBeNull();
 		expect(rowSweepKind("offline")).toBeNull();
 		expect(rowSweepKind(null)).toBeNull();
