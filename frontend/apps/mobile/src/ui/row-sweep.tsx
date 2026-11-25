@@ -51,8 +51,8 @@ function subscribeClock(): () => void {
 /**
  * RowSweep 给会话行铺整行状态底色，替代原先行首的小色块。
  *
- * running/waiting 用一条光带扫过整行，running 跟随节点色、waiting 用警告色；
- * error 铺静态淡红底——会动的底色会被读成“还在跑”。行本身只需 `overflow:
+ * running 用一条光带扫过整行并跟随节点色；waiting 用警告色把同一条光带**停在
+ * 行尾**，像是跑到那里等你处理；error 铺静态淡红底。行本身只需 `overflow:
  * hidden`，光带不会盖住文字（层级在内容之下，且不接收触摸）。
  */
 export function RowSweep({ state, color }: { state?: SessionState | null; color?: string | null }) {
@@ -76,19 +76,22 @@ export function RowSweep({ state, color }: { state?: SessionState | null; color?
 		<SweepBand
 			label={statusLabel(resolved)}
 			tint={state === "running" ? (color ?? theme.colors.accent) : theme.colors.warningBorder}
+			rest={kind === "rest"}
 		/>
 	);
 }
 
-function SweepBand({ label, tint }: { label: string; tint: string }) {
+/** rest 表示光带停在行尾不移动；running 只有系统要求减少动效时才停在行尾。 */
+function SweepBand({ label, tint, rest }: { label: string; tint: string; rest: boolean }) {
 	const [width, setWidth] = useState(0);
 	const reduceMotion = useReduceMotion();
+	const frozen = rest || reduceMotion;
 	const band = Math.round(width * BAND_RATIO);
 
 	useEffect(() => {
-		if (reduceMotion) return;
+		if (frozen) return;
 		return subscribeClock();
-	}, [reduceMotion]);
+	}, [frozen]);
 
 	return (
 		<View
@@ -106,11 +109,11 @@ function SweepBand({ label, tint }: { label: string; tint: string }) {
 						bottom: 0,
 						width: band,
 						opacity: PEAK_OPACITY,
-						// 减少动效时把光带静止在中间，状态仍然看得见。
+						// 停在行尾时光带正好贴住右边，渐变右端本就全透明，不会出现硬边。
 						transform: [
 							{
-								translateX: reduceMotion
-									? (width - band) / 2
+								translateX: frozen
+									? width - band
 									: clock.interpolate({ inputRange: [0, 1], outputRange: [-band, width] }),
 							},
 						],

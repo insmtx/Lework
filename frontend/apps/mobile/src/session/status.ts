@@ -55,14 +55,16 @@ export function statusGlyph(state: SessionStatus | null): string {
 /**
  * rowSweepKind 决定会话行铺什么背景。
  *
- * 运行与等待铺扫光，出错铺静态淡红：会动的底色会被读成“还在跑”。其余状态
+ * 运行中铺会动的扫光；等待你处理时把同一条光带**停在行尾**：看得出是同一
+ * 状态的延续，又不会动——会动的底色会被读成“还在跑”。出错铺静态淡红，其余
  * 不铺，避免整个列表都在发光。
  */
-export function rowSweepKind(state: SessionStatus | null): "sweep" | "static" | null {
+export function rowSweepKind(state: SessionStatus | null): "sweep" | "rest" | "static" | null {
 	switch (state) {
 		case "running":
-		case "waiting_permission":
 			return "sweep";
+		case "waiting_permission":
+			return "rest";
 		case "error":
 			return "static";
 		default:

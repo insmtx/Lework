@@ -45,9 +45,9 @@ describe("statusGlyph", () => {
 });
 
 describe("rowSweepKind", () => {
-	it("运行与等待铺整行扫光，出错用静态底色，其余不铺", () => {
+	it("运行扫光、等待停在行尾、出错静态底色，其余不铺", () => {
 		expect(rowSweepKind("running")).toBe("sweep");
-		expect(rowSweepKind("waiting_permission")).toBe("sweep");
+		expect(rowSweepKind("waiting_permission")).toBe("rest");
 		expect(rowSweepKind("error")).toBe("static");
 		expect(rowSweepKind("idle")).toBeNull();
 		expect(rowSweepKind("offline")).toBeNull();
