@@ -39,6 +39,12 @@ function param(value: string | string[] | undefined): string {
 	return Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
 }
 
+// 用分隔组件而不是 contentContainerStyle.gap：虚拟列表的 spacer 也是直接子节点，
+// gap 会随渲染窗口变化凭空改变内容高度，贴底滚动就会被带着抖。
+function MessageSeparator() {
+	return <View style={{ height: 12 }} />;
+}
+
 function ApprovalCard({
 	permission,
 	onReply,
@@ -413,6 +419,7 @@ export default function SessionScreen() {
 						/>
 					)}
 					refreshControl={<RefreshControl refreshing={loading} onRefresh={refresh} />}
+					ItemSeparatorComponent={MessageSeparator}
 					{...listHandlers}
 					scrollEventThrottle={16}
 					ListFooterComponent={
@@ -525,7 +532,7 @@ function createStyles(theme: Theme) {
 		stopText: { fontSize: 13, color: colors.textSecondary },
 		messagesWrap: { flex: 1 },
 		messages: { flex: 1 },
-		messagesContent: { flexGrow: 1, justifyContent: "flex-end", padding: 16, gap: 12 },
+		messagesContent: { flexGrow: 1, justifyContent: "flex-end", padding: 16 },
 		newContentWrap: { position: "absolute", left: 0, right: 0, bottom: 10, alignItems: "center" },
 		newContent: {
 			borderRadius: 14,
@@ -534,7 +541,7 @@ function createStyles(theme: Theme) {
 			backgroundColor: colors.action,
 		},
 		newContentText: { fontSize: 12, fontWeight: "600", color: colors.actionText },
-		approvals: { gap: 10, marginBottom: 12 },
+		approvals: { gap: 10, marginTop: 12, marginBottom: 12 },
 		pendingWrap: { alignItems: "center", paddingBottom: 8 },
 		pendingBarText: {
 			borderRadius: 14,

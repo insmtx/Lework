@@ -191,7 +191,7 @@ export function createStyles(theme: Theme) {
 		sheetStatusText: { fontSize: 12 },
 		sheetBody: { flex: 1 },
 		sheetLoading: { paddingVertical: 24 },
-		sheetLiveContent: { flexGrow: 1, justifyContent: "flex-end", padding: 16, gap: 12 },
+		sheetLiveContent: { flexGrow: 1, justifyContent: "flex-end", padding: 16 },
 		sheetNewContentWrap: {
 			position: "absolute",
 			left: 0,
@@ -208,7 +208,7 @@ export function createStyles(theme: Theme) {
 		sheetNewContentText: { fontSize: 12, fontWeight: "600", color: colors.actionText },
 		sheetScroll: { flex: 1 },
 		sheetContent: { padding: 16, gap: 12 },
-		sheetMeta: { gap: 4 },
+		sheetMeta: { gap: 4, marginBottom: 12 },
 		sheetMetaText: { fontSize: 12, color: colors.textMuted },
 		sheetDescription: { fontSize: 14, lineHeight: 20, color: colors.text },
 		sheetSection: { gap: 6 },

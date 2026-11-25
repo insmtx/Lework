@@ -24,6 +24,12 @@ import { useToolStyles } from "./use-tool-styles";
 // 子会话可能在打开面板后才创建（执行中），轮询间隔够跟上首个会话又不过度打服务端。
 const CHILD_POLL_MS = 2_000;
 
+// 用分隔组件而不是 contentContainerStyle.gap：虚拟列表的 spacer 也是直接子节点，
+// gap 会随渲染窗口变化凭空改变内容高度，贴底滚动就会被带着抖。
+function LiveSeparator() {
+	return <View style={{ height: 12 }} />;
+}
+
 /** toolSessionState 把工具状态翻译成会话状态，接不上子会话时也能显示状态条。 */
 function toolSessionState(running: boolean, status: string): SessionState | null {
 	if (status === "error") return "error";
@@ -286,10 +292,16 @@ function LiveConversation({
 		() => filterVisibleMessages(messages, preferences),
 		[messages, preferences],
 	);
-	const { listRef, handlers, follow } = useAutoFollow<Message>({
+	const { listRef, handlers, follow, reset } = useAutoFollow<Message>({
 		following,
 		setFollowing,
 	});
+
+	// 子会话可能在面板打开后才确定或切换；换会话要清掉上一个列表的滚动状态。
+	// biome-ignore lint/correctness/useExhaustiveDependencies: 切会话时才重置，不跟 reset 引用变化
+	useEffect(() => {
+		reset();
+	}, [childSessionID]);
 
 	return (
 		<View style={styles.sheetBody}>
@@ -325,6 +337,7 @@ function LiveConversation({
 						<Text style={styles.muted}>子代理还没有输出。</Text>
 					)
 				}
+				ItemSeparatorComponent={LiveSeparator}
 				{...handlers}
 				scrollEventThrottle={16}
 			/>

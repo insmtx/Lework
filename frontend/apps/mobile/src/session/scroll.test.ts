@@ -18,6 +18,10 @@ describe("isNearBottom", () => {
 	it("内容不足一屏时视为贴底", () => {
 		expect(isNearBottom({ offsetY: 0, contentHeight: 120, viewportHeight: 400 })).toBe(true);
 	});
+
+	it("余量恰好等于阈值时仍算贴底", () => {
+		expect(isNearBottom({ offsetY: 552, contentHeight: 1000, viewportHeight: 400 })).toBe(true);
+	});
 });
 
 describe("bottomOffset", () => {
@@ -49,5 +53,13 @@ describe("followOffset", () => {
 
 	it("亚像素差异不触发滚动", () => {
 		expect(followOffset(900.4, 900)).toBe(null);
+	});
+
+	it("恰好半个像素也不触发", () => {
+		expect(followOffset(900.5, 900)).toBe(null);
+	});
+
+	it("超过半像素就追", () => {
+		expect(followOffset(900.6, 900)).toBe(900.6);
 	});
 });
