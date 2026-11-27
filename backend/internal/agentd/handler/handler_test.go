@@ -95,6 +95,7 @@ type fakeOpenCode struct {
 	readFileCalls     int
 	readFileDirectory string
 	readFilePath      string
+	readFileOffset    int64
 	readFileMaxBytes  int64
 	readFileContent   opencode.FileContent
 	readFileErr       error
@@ -270,10 +271,11 @@ func (f *fakeOpenCode) ListFiles(_ context.Context, directory, path string) ([]o
 	return f.files, f.listFilesErr
 }
 
-func (f *fakeOpenCode) ReadFile(_ context.Context, directory, path string, maxBytes int64) (opencode.FileContent, error) {
+func (f *fakeOpenCode) ReadFile(_ context.Context, directory, path string, offset, maxBytes int64) (opencode.FileContent, error) {
 	f.readFileCalls++
 	f.readFileDirectory = directory
 	f.readFilePath = path
+	f.readFileOffset = offset
 	f.readFileMaxBytes = maxBytes
 	return f.readFileContent, f.readFileErr
 }
@@ -1171,12 +1173,43 @@ func TestFileReadReturnsUTF8AndCapsSize(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if oc.readFileMaxBytes != 512<<10 {
-		t.Fatalf("max bytes = %d, want 512 KiB cap", oc.readFileMaxBytes)
+	if oc.readFileMaxBytes != 1<<20 {
+		t.Fatalf("max bytes = %d, want 1 MiB cap", oc.readFileMaxBytes)
+	}
+	if oc.readFileOffset != 0 {
+		t.Fatalf("offset = %d, want 0", oc.readFileOffset)
 	}
 	got, ok := result.(FileReadResult)
 	if !ok || got.Encoding != "utf-8" || got.Content != "hello" || got.Path != "a.txt" || got.Size != 5 {
 		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestFileReadPassesOffset(t *testing.T) {
+	root := t.TempDir()
+	oc := &fakeOpenCode{readFileContent: opencode.FileContent{Data: []byte("tail"), Size: 8}}
+	h := New(oc, fakeSupervisor{}, WithWorkspaceRoots(root))
+
+	params, _ := json.Marshal(FileReadParams{Directory: root, Path: "a.txt", Offset: 4})
+	if _, err := h.Handle(context.Background(), "file.read", params); err != nil {
+		t.Fatal(err)
+	}
+	if oc.readFileOffset != 4 {
+		t.Fatalf("offset = %d, want 4", oc.readFileOffset)
+	}
+}
+
+func TestFileReadRejectsNegativeOffset(t *testing.T) {
+	root := t.TempDir()
+	oc := &fakeOpenCode{}
+	h := New(oc, fakeSupervisor{}, WithWorkspaceRoots(root))
+
+	params, _ := json.Marshal(FileReadParams{Directory: root, Path: "a.txt", Offset: -1})
+	if _, err := h.Handle(context.Background(), "file.read", params); err == nil {
+		t.Fatal("expected negative offset error")
+	}
+	if oc.readFileCalls != 0 {
+		t.Fatalf("read calls = %d, want 0", oc.readFileCalls)
 	}
 }
 

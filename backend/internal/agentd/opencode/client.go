@@ -375,11 +375,14 @@ func (c *Client) ListFiles(ctx context.Context, directory, path string) ([]FileI
 	return files, nil
 }
 
-// ReadFile reads at most maxBytes of a workspace file. It uses the Range
-// header so a large file never has to fit in memory; maxBytes <= 0 selects a
-// 512 KiB default. The OpenCode read endpoint is not path-confined, so callers
-// must confine the path first.
-func (c *Client) ReadFile(ctx context.Context, directory, path string, maxBytes int64) (FileContent, error) {
+// ReadFile reads at most maxBytes of a workspace file starting at offset. It
+// uses the Range header so a large file never has to fit in memory; maxBytes
+// <= 0 selects a 512 KiB default. The OpenCode read endpoint is not
+// path-confined, so callers must confine the path first.
+func (c *Client) ReadFile(ctx context.Context, directory, path string, offset, maxBytes int64) (FileContent, error) {
+	if offset < 0 {
+		offset = 0
+	}
 	if maxBytes <= 0 {
 		maxBytes = 512 << 10
 	}
@@ -393,7 +396,7 @@ func (c *Client) ReadFile(ctx context.Context, directory, path string, maxBytes 
 		return FileContent{}, fmt.Errorf("build opencode GET file request: %w", err)
 	}
 	req.Header.Set("Accept", "*/*")
-	req.Header.Set("Range", fmt.Sprintf("bytes=0-%d", maxBytes-1))
+	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", offset, offset+maxBytes-1))
 	c.authorize(req)
 
 	resp, err := c.httpClient.Do(req)
@@ -404,6 +407,10 @@ func (c *Client) ReadFile(ctx context.Context, directory, path string, maxBytes 
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
 		return FileContent{}, c.responseError(http.MethodGet, "/api/fs/read", resp)
+	}
+	if offset > 0 && resp.StatusCode == http.StatusOK {
+		// 忽略 Range 的服务端会先返回整份文件；继续按块拼接会重复数据。
+		return FileContent{}, errors.New("opencode read file: server ignored range request")
 	}
 
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes))
@@ -417,9 +424,12 @@ func (c *Client) ReadFile(ctx context.Context, directory, path string, maxBytes 
 		if slash := strings.LastIndexByte(contentRange, '/'); slash >= 0 {
 			if total, parseErr := strconv.ParseInt(contentRange[slash+1:], 10, 64); parseErr == nil {
 				size = total
-				truncated = int64(len(data)) < total
+				truncated = offset+int64(len(data)) < total
 			}
 		}
+	} else if resp.StatusCode == http.StatusPartialContent {
+		// 分块响应没有总大小：只能按“是否读满一块”判断后面还有没有数据。
+		truncated = int64(len(data)) >= maxBytes
 	} else if resp.ContentLength >= 0 {
 		size = resp.ContentLength
 		truncated = int64(len(data)) < resp.ContentLength

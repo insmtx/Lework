@@ -142,7 +142,7 @@ func (stubOpenCode) ListFiles(context.Context, string, string) ([]opencode.FileI
 	return nil, nil
 }
 
-func (stubOpenCode) ReadFile(context.Context, string, string, int64) (opencode.FileContent, error) {
+func (stubOpenCode) ReadFile(context.Context, string, string, int64, int64) (opencode.FileContent, error) {
 	return opencode.FileContent{}, nil
 }
 
