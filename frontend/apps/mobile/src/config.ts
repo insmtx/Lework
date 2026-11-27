@@ -12,3 +12,9 @@ export function sessionRoute(nodeID: string, sessionID: string): string {
 export function projectRoute(key: string): string {
 	return `/projects/${encodeURIComponent(key)}`;
 }
+
+// fileRoute 返回文件预览页路径；directory / path 走 query，避免斜杠被当成
+// 路由层级（expo-router 会自动解码 query）。
+export function fileRoute(nodeID: string, directory: string, path: string): string {
+	return `/file/${encodeURIComponent(nodeID)}?directory=${encodeURIComponent(directory)}&path=${encodeURIComponent(path)}`;
+}
