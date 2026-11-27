@@ -1460,6 +1460,114 @@ func TestAPIFileContent(t *testing.T) {
 	requireErrorCode(t, missingPath, http.StatusBadRequest, "invalid_request")
 }
 
+func TestAPIFileDownloadStreamsChunks(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+	rec, agent, conn := env.addNode("dev-box")
+
+	params := make(chan fileReadParams, 2)
+	go func() {
+		for i := 0; i < 2; i++ {
+			select {
+			case frame := <-agent.frames:
+				var p fileReadParams
+				if err := json.Unmarshal(frame.Params, &p); err != nil {
+					t.Errorf("decode params: %v", err)
+					return
+				}
+				params <- p
+				result := `{"content":"hello","encoding":"utf-8","size":10,"truncated":true}`
+				if i == 1 {
+					result = `{"content":"world","encoding":"utf-8","size":10,"truncated":false}`
+				}
+				conn.Deliver(protocol.Frame{
+					Type:   protocol.FrameResponse,
+					ID:     frame.ID,
+					Result: json.RawMessage(result),
+				})
+			case <-time.After(5 * time.Second):
+				t.Error("agent did not receive both chunk requests")
+				return
+			}
+		}
+	}()
+
+	target := "/api/nodes/" + rec.ID + "/files/download?directory=" + url.QueryEscape("/work") + "&path=report.pdf"
+	httpRec := env.do(http.MethodGet, target, "")
+	requireStatus(t, httpRec, http.StatusOK)
+	if body := httpRec.Body.String(); body != "helloworld" {
+		t.Fatalf("body = %q, want concatenated chunks", body)
+	}
+	if got := httpRec.Header().Get("Content-Length"); got != "10" {
+		t.Fatalf("content length = %q, want 10", got)
+	}
+	if got := httpRec.Header().Get("Content-Type"); got != "application/octet-stream" {
+		t.Fatalf("content type = %q", got)
+	}
+
+	for i := 0; i < 2; i++ {
+		p := <-params
+		if p.Directory != "/work" || p.Path != "report.pdf" {
+			t.Fatalf("params = %+v", p)
+		}
+		if p.MaxBytes != fileDownloadChunkBytes {
+			t.Fatalf("max bytes = %d, want %d", p.MaxBytes, fileDownloadChunkBytes)
+		}
+		if p.Offset != int64(i*5) {
+			t.Fatalf("offset = %d, want %d", p.Offset, i*5)
+		}
+	}
+
+	select {
+	case frame := <-agent.frames:
+		t.Fatalf("unexpected extra request: %s", frame.Method)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func TestAPIFileDownloadDecodesBase64(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+	rec, agent, conn := env.addNode("dev-box")
+
+	// 二进制文件（PDF 等）由节点以 base64 返回。
+	got := replyOK(t, agent, conn, `{"content":"JVBERi0=","encoding":"base64","size":5,"truncated":false}`)
+	target := "/api/nodes/" + rec.ID + "/files/download?directory=" + url.QueryEscape("/work") + "&path=report.pdf"
+	httpRec := env.do(http.MethodGet, target, "")
+	requireStatus(t, httpRec, http.StatusOK)
+	if body := httpRec.Body.String(); body != "%PDF-" {
+		t.Fatalf("body = %q, want decoded bytes", body)
+	}
+	if gotLength := httpRec.Header().Get("Content-Length"); gotLength != "5" {
+		t.Fatalf("content length = %q, want 5", gotLength)
+	}
+	_ = waitFrame(t, got)
+}
+
+func TestAPIFileDownloadRejectsTooLarge(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+	rec, agent, conn := env.addNode("dev-box")
+
+	got := replyOK(t, agent, conn, `{"content":"","encoding":"utf-8","size":104857601,"truncated":true}`)
+	target := "/api/nodes/" + rec.ID + "/files/download?directory=" + url.QueryEscape("/work") + "&path=huge.bin"
+	httpRec := env.do(http.MethodGet, target, "")
+	requireErrorCode(t, httpRec, http.StatusRequestEntityTooLarge, "file_too_large")
+	_ = waitFrame(t, got)
+}
+
+func TestAPIFileContentAcceptsWindowsDirectory(t *testing.T) {
+	env := newTestEnv(t, time.Second)
+	rec, agent, conn := env.addNode("dev-box")
+
+	got := replyOK(t, agent, conn, `{"path":"a.txt","encoding":"utf-8","content":"hi","size":2,"truncated":false}`)
+	target := "/api/nodes/" + rec.ID + "/files/content?directory=" + url.QueryEscape(`C:\repo`) + "&path=a.txt"
+	httpRec := env.do(http.MethodGet, target, "")
+	requireStatus(t, httpRec, http.StatusOK)
+	frame := waitFrame(t, got)
+	params := decodeParamsInto[fileReadParams](t, frame)
+	if params.Directory != `C:\repo` {
+		t.Fatalf("directory = %q", params.Directory)
+	}
+}
+
 func TestAPIPTYCreateAndClose(t *testing.T) {
 	env := newTestEnv(t, time.Second)
 	rec, agent, conn := env.addNode("dev-box")

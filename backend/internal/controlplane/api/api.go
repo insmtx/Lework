@@ -172,6 +172,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	a.nodeRoute(mux, "POST /api/nodes/{id}/opencode/stop", a.handleOpenCodeStop)
 	a.nodeRoute(mux, "GET /api/nodes/{id}/files", a.handleFileList)
 	a.nodeRoute(mux, "GET /api/nodes/{id}/files/content", a.handleFileContent)
+	a.nodeRoute(mux, "GET /api/nodes/{id}/files/download", a.handleFileDownload)
 
 	mux.HandleFunc("GET /api/sessions", a.handleListSessions)
 	mux.HandleFunc("POST /api/sessions", a.handleCreateSession)
