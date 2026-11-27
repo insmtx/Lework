@@ -97,3 +97,13 @@ export function recentProjectOptions(
 	}
 	return out;
 }
+
+/**
+ * nextRecentLimit 推进首页最近会话的一页露出条数。
+ *
+ * 下限固定为一页：空列表时若算出 0，之后会话刷新出来也会一直显示空列表，
+ * 而首页的「该项目暂无最近会话」就成了假话。
+ */
+export function nextRecentLimit(current: number, total: number, page: number): number {
+	return Math.max(page, Math.min(current + page, total));
+}

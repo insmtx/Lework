@@ -31,7 +31,7 @@ import {
 	type TaskSelection,
 } from "../src/projects/model";
 import { isNearBottom } from "../src/session/scroll";
-import { recentProjectOptions } from "../src/sessions/select";
+import { nextRecentLimit, recentProjectOptions } from "../src/sessions/select";
 import type { Theme } from "../src/theme/theme";
 import { useTheme, useThemedStyles } from "../src/theme/use-theme";
 import { useAppShell, useScreenTitle } from "../src/ui/app-shell-context";
@@ -432,7 +432,7 @@ export default function HomeScreen() {
 						if (!nearBottom) return;
 						moreLoadedInGesture.current = true;
 						setRecentLimit((limit) =>
-							Math.min(limit + HOME_RECENT_PAGE, filteredRecentRows.length),
+							nextRecentLimit(limit, filteredRecentRows.length, HOME_RECENT_PAGE),
 						);
 					}}
 				>
@@ -489,7 +489,7 @@ export default function HomeScreen() {
 									style={styles.recentFilter}
 									onPress={() => setRecentFilterOpen(true)}
 								>
-									<Text style={styles.recentFilterText}>
+									<Text style={styles.recentFilterText} numberOfLines={1}>
 										{recentProjectItems.find((item) => item.selected)?.label ?? "全部项目"}
 									</Text>
 									<Text style={styles.recentFilterCaret}>▾</Text>
@@ -640,8 +640,15 @@ function createStyles(theme: Theme) {
 			justifyContent: "space-between",
 			paddingHorizontal: 4,
 		},
-		recentFilter: { flexDirection: "row", alignItems: "center", gap: 2, paddingVertical: 2 },
-		recentFilterText: { fontSize: 12, color: colors.accent },
+		recentFilter: {
+			flexDirection: "row",
+			alignItems: "center",
+			gap: 2,
+			paddingVertical: 2,
+			flexShrink: 1,
+			maxWidth: 220,
+		},
+		recentFilterText: { flexShrink: 1, fontSize: 12, color: colors.accent },
 		recentFilterCaret: { fontSize: 10, color: colors.accent },
 		recentEmpty: { fontSize: 12, color: colors.textMuted, paddingHorizontal: 4, paddingVertical: 8 },
 		recentTitle: {

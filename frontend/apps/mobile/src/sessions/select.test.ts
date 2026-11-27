@@ -1,6 +1,7 @@
 import type { Session } from "@lework/api";
 import { describe, expect, it } from "vitest";
 import {
+	nextRecentLimit,
 	recentProjectOptions,
 	selectProjectSessions,
 	selectSiblingSessions,
@@ -102,5 +103,16 @@ describe("recentProjectOptions", () => {
 		expect(recentProjectOptions([{ projectKey: "repo-a", projectName: "" }])).toEqual([
 			{ key: "repo-a", label: "repo-a" },
 		]);
+	});
+});
+
+describe("nextRecentLimit", () => {
+	it("列表为空时不把已露出的条数压到 0", () => {
+		expect(nextRecentLimit(5, 0, 5)).toBe(5);
+	});
+
+	it("按一页推进并封顶到总数", () => {
+		expect(nextRecentLimit(5, 12, 5)).toBe(10);
+		expect(nextRecentLimit(10, 12, 5)).toBe(12);
 	});
 });
