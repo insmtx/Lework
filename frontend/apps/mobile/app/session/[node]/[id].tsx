@@ -21,7 +21,7 @@ import { filterVisibleMessages } from "../../../src/session/messages";
 import { runSend } from "../../../src/session/send-flow";
 import { statusColor, statusTone } from "../../../src/session/status";
 import { SessionStatusIcon } from "../../../src/session/status-icon";
-import { useAutoFollow } from "../../../src/session/use-auto-follow";
+import { keepVisibleContent, useAutoFollow } from "../../../src/session/use-auto-follow";
 import { useSession } from "../../../src/session/use-session";
 import { selectSiblingSessions } from "../../../src/sessions/select";
 import { useNodeSessions } from "../../../src/sessions/use-node-sessions";
@@ -421,6 +421,7 @@ export default function SessionScreen() {
 					)}
 					refreshControl={<RefreshControl refreshing={loading} onRefresh={refresh} />}
 					ItemSeparatorComponent={MessageSeparator}
+					maintainVisibleContentPosition={keepVisibleContent}
 					{...listHandlers}
 					scrollEventThrottle={16}
 					ListFooterComponent={

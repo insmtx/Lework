@@ -10,7 +10,7 @@ import { MessageRow } from "../../session/message-row";
 import { filterVisibleMessages } from "../../session/messages";
 import { isNearBottom } from "../../session/scroll";
 import { statusColor, statusLabel, statusTone } from "../../session/status";
-import { useAutoFollow } from "../../session/use-auto-follow";
+import { keepVisibleContent, useAutoFollow } from "../../session/use-auto-follow";
 import { useSession } from "../../session/use-session";
 import { useThemePreference } from "../../theme/theme-context";
 import { useTheme } from "../../theme/use-theme";
@@ -322,6 +322,7 @@ function LiveConversation({
 					/>
 				)}
 				refreshControl={<RefreshControl refreshing={loading} onRefresh={refresh} />}
+				maintainVisibleContentPosition={keepVisibleContent}
 				ListHeaderComponent={
 					<View style={styles.sheetMeta}>
 						{meta ? <Text style={styles.sheetMetaText}>{meta}</Text> : null}

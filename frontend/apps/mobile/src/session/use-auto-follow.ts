@@ -11,6 +11,19 @@ import { bottomOffset, followOffset, isFarFromBottom, isNearBottom } from "./scr
 /** 超过这段时间没有新的滚动事件，就认为用户这一次拖动/惯性已经结束。 */
 const GESTURE_IDLE_MS = 300;
 
+/**
+ * keepVisibleContent 交给 native 的 maintainVisibleContentPosition。
+ *
+ * 没有 getItemLayout 时，虚拟列表用「已测量行的平均高度」估算没测量的行，
+ * 也就是视口上下的 spacer。流式输出让最后一条消息每帧变高，平均高度随之
+ * 漂移，spacer 就跟着伸缩——整块内容被顶上或顶下几十到几百像素，要等下一帧
+ * JS 再滚回来才回到原位，看起来就是持续闪跳；工具输出一次吐几十行时最明显。
+ *
+ * 开启后 native 在同一次布局提交里按第一个可见子视图的位移补正偏移，不经过
+ * JS，所以不会出现「先跳后滚」。iOS 与 Android 新架构都支持。
+ */
+export const keepVisibleContent = { minIndexForVisible: 0 } as const;
+
 /** AutoFollowHandlers 是挂到列表上的滚动事件集合。 */
 export interface AutoFollowHandlers {
 	onContentSizeChange: (width: number, height: number) => void;
