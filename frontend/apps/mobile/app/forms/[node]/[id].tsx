@@ -1,7 +1,16 @@
 import type { FormAnswerValue, PendingForm } from "@lework/api";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import {
+	KeyboardAvoidingView,
+	Platform,
+	Pressable,
+	ScrollView,
+	StyleSheet,
+	Text,
+	View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { createClient } from "../../../src/api/client";
 import { FormCard } from "../../../src/session/form-card";
@@ -21,6 +30,7 @@ function param(value: string | string[] | undefined): string {
 export default function GlobalFormScreen() {
 	const params = useLocalSearchParams<{ node: string; id: string }>();
 	const styles = useThemedStyles(createStyles);
+	const insets = useSafeAreaInsets();
 	const { settings, settingsLoading } = useAppShell();
 	const nodeID = param(params.node);
 	const formID = param(params.id);
@@ -93,32 +103,43 @@ export default function GlobalFormScreen() {
 		);
 	}
 
-	if (loading) {
+	// 已有表单时不要退回全屏加载：回答失败会触发 reload，整页闪一下会让人以为答案丢了。
+	if (loading && !form) {
 		return <LoadingScreen text="正在加载表单…" />;
 	}
 
 	return (
-		<View style={styles.screen}>
-			{error ? <Text style={styles.error}>{error}</Text> : null}
-			{form ? (
-				<FormCard form={form} onSubmit={submit} onCancel={cancel} />
-			) : (
-				<View style={styles.center}>
-					<Text style={styles.title}>表单已处理或不存在</Text>
-					<Text style={styles.hint}>它可能已经被回答、跳过，或所在节点已离线。</Text>
-					<Pressable style={styles.button} onPress={() => router.back()}>
-						<Text style={styles.buttonText}>返回</Text>
-					</Pressable>
-				</View>
-			)}
-		</View>
+		<KeyboardAvoidingView
+			style={styles.screen}
+			behavior={Platform.OS === "ios" ? "padding" : undefined}
+		>
+			<ScrollView
+				contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 16 }]}
+				keyboardShouldPersistTaps="handled"
+			>
+				{error ? <Text style={styles.error}>{error}</Text> : null}
+				{form ? (
+					<FormCard form={form} onSubmit={submit} onCancel={cancel} />
+				) : (
+					<View style={styles.center}>
+						<Text style={styles.title}>表单已处理或不存在</Text>
+						<Text style={styles.hint}>它可能已经被回答、跳过，或所在节点已离线。</Text>
+						<Pressable style={styles.button} onPress={() => router.back()}>
+							<Text style={styles.buttonText}>返回</Text>
+						</Pressable>
+					</View>
+				)}
+			</ScrollView>
+		</KeyboardAvoidingView>
 	);
 }
 
 function createStyles(theme: Theme) {
 	const { colors } = theme;
 	return StyleSheet.create({
-		screen: { flex: 1, backgroundColor: colors.background, padding: 16 },
+		screen: { flex: 1, backgroundColor: colors.background },
+		// flexGrow 让空表单时的居中提示仍能占满可视区域。
+		content: { flexGrow: 1, padding: 16 },
 		center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24, gap: 8 },
 		title: { fontSize: 18, fontWeight: "600", color: colors.text },
 		hint: { color: colors.textSecondary, textAlign: "center" },

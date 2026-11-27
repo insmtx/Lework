@@ -422,6 +422,8 @@ export default function SessionScreen() {
 					refreshControl={<RefreshControl refreshing={loading} onRefresh={refresh} />}
 					ItemSeparatorComponent={MessageSeparator}
 					maintainVisibleContentPosition={keepVisibleContent}
+					// 表单卡在 footer 里有输入框；默认的 never 会吞掉「键盘弹起后第一次点选项」。
+					keyboardShouldPersistTaps="handled"
 					{...listHandlers}
 					scrollEventThrottle={16}
 					ListFooterComponent={
