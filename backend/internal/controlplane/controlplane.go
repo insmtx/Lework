@@ -156,7 +156,7 @@ func New(cfg config.Config, st *store.Store, deps Deps) (*Server, error) {
 			return info.Name
 		}
 		return nodeID
-	}, push.WithSessionTitle(index.Title))
+	}, push.WithSessionTitle(index.Title), push.WithParentSession(index.ParentID))
 	browserAPI := api.New(
 		st,
 		registry,

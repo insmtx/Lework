@@ -55,6 +55,7 @@ type Notifier struct {
 	sender       Sender
 	label        func(nodeID string) string
 	sessionTitle func(nodeID, sessionID string) string
+	parentOf     func(nodeID, sessionID string) string
 	now          func() time.Time
 
 	gate chan struct{}
@@ -72,6 +73,16 @@ func WithSessionTitle(fn func(nodeID, sessionID string) string) Option {
 	return func(n *Notifier) {
 		if fn != nil {
 			n.sessionTitle = fn
+		}
+	}
+}
+
+// WithParentSession 提供父会话查询。后台 subagent 的子会话结束不等于主会话
+// 结束，完成通知只对顶层会话发，否则用户会在主会话还在跑时被提前叫走。
+func WithParentSession(fn func(nodeID, sessionID string) string) Option {
+	return func(n *Notifier) {
+		if fn != nil {
+			n.parentOf = fn
 		}
 	}
 }
@@ -291,6 +302,11 @@ func (n *Notifier) permissionNotification(ev event.Event) (notification, bool) {
 // 去重键使用事件时间：JetStream 重投的是同一条事件（时间相同），而同一
 // 会话下一轮结束的时间不同，不会被误吞。
 func (n *Notifier) completionNotification(ev event.Event) (notification, bool) {
+	// 子会话完成不推：主会话这一轮可能还在跑，提前提醒会误导用户。
+	if n.parentOf != nil && n.parentOf(ev.NodeID, ev.SessionID) != "" {
+		return notification{}, false
+	}
+
 	var (
 		prefix string
 		body   string

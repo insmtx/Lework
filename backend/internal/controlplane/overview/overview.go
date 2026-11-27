@@ -56,6 +56,9 @@ type Session struct {
 	Pending      int       `json:"pending_permissions"`
 	PendingForms int       `json:"pending_forms"`
 	LastActivity time.Time `json:"last_activity"`
+	// ParentID 是子会话（subagent）的父会话；顶层会话为空。
+	// 读取投影时靠它把子会话的活动聚合回父会话。
+	ParentID string `json:"parent_id,omitempty"`
 }
 
 // Permission 是 permission.asked 的投影，只保留渲染审批卡所需的字段。
@@ -78,6 +81,7 @@ type Node struct {
 
 type sessionState struct {
 	sessionID    string
+	parentID     string
 	title        string
 	state        State
 	pending      map[string]Permission
@@ -242,6 +246,11 @@ func (i *Index) Apply(ev event.Event) {
 		if title := titleFrom(ev.Data); title != "" {
 			sess.title = title
 		}
+		// 只有会话事件带 parentID；执行相关事件不再重复携带，因此在这里
+		// 记一次即可，后续子会话的完成/审批事件靠它归到父会话。
+		if parentID := parentIDFrom(ev.Data); parentID != "" {
+			sess.parentID = parentID
+		}
 
 	default:
 		// 消息、工具调用等只说明“还在动”。等审批时不能被这些事件覆盖，
@@ -300,6 +309,7 @@ func (i *Index) applySnapshot(ev event.Event) {
 		}
 		sessions[sess.SessionID] = &sessionState{
 			sessionID:        sess.SessionID,
+			parentID:         sess.ParentID,
 			title:            sess.Title,
 			state:            state,
 			pending:          make(map[string]Permission),
@@ -439,10 +449,11 @@ func (i *Index) Snapshot() []Node {
 			node.Sessions = append(node.Sessions, Session{
 				SessionID:    sess.sessionID,
 				Title:        sess.title,
-				State:        sess.state,
+				State:        derivedState(sess, sessions),
 				Pending:      pendingTotal(sess),
 				PendingForms: pendingFormTotal(sess),
 				LastActivity: sess.lastActivity,
+				ParentID:     sess.parentID,
 			})
 		}
 		sort.Slice(node.Sessions, func(a, b int) bool {
@@ -488,12 +499,49 @@ func (i *Index) snapshotNodeLocked(nodeID string) []Session {
 			Pending:      pendingTotal(sess),
 			PendingForms: pendingFormTotal(sess),
 			LastActivity: sess.lastActivity,
+			ParentID:     sess.parentID,
 		})
 	}
 	sort.Slice(out, func(a, b int) bool {
 		return out[a].LastActivity.After(out[b].LastActivity)
 	})
 	return out
+}
+
+// derivedState 把子会话的 running/waiting_permission 聚合到父会话。
+//
+// 后台 subagent 的子会话可能比父会话这一轮活得久：父会话收到 succeeded 时
+// 子会话仍在跑，只看父会话会提前显示 idle。这里只在读取投影时聚合，owner
+// 发布的快照仍是原始状态，否则多实例会反复聚合同一批子会话。
+//
+// 不聚合 error：子代理失败不该把父会话标成失败。陈旧规则防止事件断档后
+// 留下的孤儿 running 子会话永久钉住父会话。
+func derivedState(sess *sessionState, sessions map[string]*sessionState) State {
+	state := sess.state
+	cutoff := sess.lastActivity.Add(-pruneAfter)
+	waiting := state == StateWaitingPermission
+	running := state == StateRunning
+
+	for _, child := range sessions {
+		if child.parentID != sess.sessionID || child.lastActivity.Before(cutoff) {
+			continue
+		}
+		switch child.state {
+		case StateWaitingPermission:
+			waiting = true
+		case StateRunning:
+			running = true
+		}
+	}
+
+	switch {
+	case waiting:
+		return StateWaitingPermission
+	case running:
+		return StateRunning
+	default:
+		return state
+	}
 }
 
 // pendingTotal 返回会话的待审批数量。
@@ -577,6 +625,20 @@ func (i *Index) Title(nodeID, sessionID string) string {
 	return sess.title
 }
 
+// ParentID 返回会话的父会话 ID；顶层会话或未知会话返回空串。
+//
+// 通知器用它判断某个会话是不是 subagent 子会话，从而跳过子会话的完成推送。
+func (i *Index) ParentID(nodeID, sessionID string) string {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	sess := i.nodes[nodeID][sessionID]
+	if sess == nil {
+		return ""
+	}
+	return sess.parentID
+}
+
 // PendingPermissions 返回某会话当前待审批项的拷贝，按 ID 升序。
 // 未知节点或会话返回空切片；调用方把它当作可丢弃的提示即可。
 func (i *Index) PendingPermissions(nodeID, sessionID string) []Permission {
@@ -648,6 +710,20 @@ func permissionID(data json.RawMessage) string {
 		return ""
 	}
 	return payload.ID
+}
+
+// parentIDFrom 从会话事件负载里取父会话 ID；顶层会话或缺字段返回空串。
+func parentIDFrom(data json.RawMessage) string {
+	if len(data) == 0 {
+		return ""
+	}
+	var payload struct {
+		ParentID string `json:"parentID"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return ""
+	}
+	return payload.ParentID
 }
 
 // titleFrom 从会话事件的负载里取标题；没有就保持原值。

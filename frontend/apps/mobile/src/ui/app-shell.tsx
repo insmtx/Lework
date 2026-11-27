@@ -1,8 +1,9 @@
-import type { ControlEvent, SessionState } from "@lework/api";
+import type { ControlEvent, OverviewNode, SessionState } from "@lework/api";
 import { router } from "expo-router";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { createClient } from "../api/client";
+import { derivedState } from "../events/merge";
 import { useOverview } from "../overview/use-overview";
 import { useProjects } from "../projects/use-projects";
 import { completionAlertFrom } from "../push/completion-alert";
@@ -87,9 +88,20 @@ export function AppShell({ children }: { children: ReactNode }) {
 		void ensureNotificationPermission();
 	}, [preferences.soundEnabled]);
 
+	// 本地完成提醒要判断会话是不是 subagent 子会话，但事件本身不带 parentID，
+	// 只能看总览里已投影的行；ref 在每次渲染后更新，事件到达时总能看到最新值。
+	const overviewNodesRef = useRef<OverviewNode[]>([]);
 	const alertCompletion = useCallback(
 		(event: ControlEvent) => {
 			if (!preferences.soundEnabled || settings?.deviceID) return;
+			const node = overviewNodesRef.current.find(
+				(candidate) => candidate.node_id === event.node_id,
+			);
+			const child = node?.sessions.some(
+				(session) => session.session_id === event.session_id && session.parent_id,
+			);
+			// 子会话完成不响：主会话这一轮可能还在跑，提前提醒会误导。
+			if (child) return;
 			const alert = completionAlertFrom(event);
 			if (alert) void notifyCompletion(alert);
 		},
@@ -102,6 +114,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 		error: overviewError,
 		refresh: refreshOverview,
 	} = useOverview(sessionSettings, alertCompletion);
+	overviewNodesRef.current = overviewNodes;
 	const [drawerOpen, setDrawerOpen] = useState(false);
 	const [screenTitle, setScreenTitle] = useState("新任务");
 	const [newTaskSeq, setNewTaskSeq] = useState(0);
@@ -120,11 +133,13 @@ export function AppShell({ children }: { children: ReactNode }) {
 	const read = useReadState(sessionSettings, visibleReadKeys);
 
 	// overview 是唯一的执行状态来源：它由服务端事件投影而来，客户端不重建状态机。
+	// derivedState 把子会话活动聚合回父会话，避免子代理还在跑时父会话提前 idle。
 	const sessionState = useCallback(
-		(nodeID: string, sessionID: string): SessionState | undefined => {
-			const node = overviewNodes.find((candidate) => candidate.node_id === nodeID);
-			return node?.sessions.find((session) => session.session_id === sessionID)?.state;
-		},
+		(nodeID: string, sessionID: string): SessionState | undefined =>
+			derivedState(
+				overviewNodes.find((candidate) => candidate.node_id === nodeID),
+				sessionID,
+			),
 		[overviewNodes],
 	);
 

@@ -70,6 +70,13 @@ function titleOf(data: unknown): string | null {
 	return typeof title === "string" && title !== "" ? title : null;
 }
 
+/** parentIDOf 解析子会话的父会话 ID；顶层会话返回 null。 */
+function parentIDOf(data: unknown): string | null {
+	if (!data || typeof data !== "object") return null;
+	const parentID = (data as { parentID?: unknown }).parentID;
+	return typeof parentID === "string" && parentID !== "" ? parentID : null;
+}
+
 /** formIDOf 解析表单 ID：created 在 data.form.id，其余事件在 data.id。 */
 function formIDOf(event: ControlEvent): string | null {
 	if (!event.data || typeof event.data !== "object") return null;
@@ -90,6 +97,40 @@ function dropSeen(seen: Record<string, true>, prefix: string): void {
 	for (const key of Object.keys(seen)) {
 		if (key.startsWith(prefix)) delete seen[key];
 	}
+}
+
+// CHILD_STATE_WINDOW_MS 是子会话参与父会话状态聚合的新鲜度窗口，与后端
+// overview 的 pruneAfter 一致：太久没动的孤儿子会话不能永久钉住父会话。
+export const CHILD_STATE_WINDOW_MS = 30 * 60 * 1000;
+
+/**
+ * derivedState 把子会话的 running/waiting_permission 聚合回父会话。
+ *
+ * 后台 subagent 可能在父会话这一轮结束后继续跑，只看父会话会提前显示 idle。
+ * 与后端一致：不聚合 error，陈旧子会话不参与。
+ */
+export function derivedState(
+	node: OverviewNode | undefined,
+	sessionID: string,
+): SessionState | undefined {
+	if (!node) return undefined;
+	const session = node.sessions.find((candidate) => candidate.session_id === sessionID);
+	if (!session) return undefined;
+
+	const cutoff = Date.parse(session.last_activity) - CHILD_STATE_WINDOW_MS;
+	let waiting = session.state === "waiting_permission";
+	let running = session.state === "running";
+	for (const child of node.sessions) {
+		if (child.parent_id !== sessionID) continue;
+		const at = Date.parse(child.last_activity);
+		if (!Number.isNaN(cutoff) && !Number.isNaN(at) && at < cutoff) continue;
+		if (child.state === "waiting_permission") waiting = true;
+		if (child.state === "running") running = true;
+	}
+
+	if (waiting) return "waiting_permission";
+	if (running) return "running";
+	return session.state;
 }
 
 function applyState(session: OverviewSession, type: string): SessionState {
@@ -248,6 +289,8 @@ export function applyEvent(state: OverviewState, event: ControlEvent): OverviewS
 		case "session.updated": {
 			const title = titleOf(event.data);
 			if (title) session.title = title;
+			const parentID = parentIDOf(event.data);
+			if (parentID) session.parent_id = parentID;
 			session.state = applyState(session, event.type);
 			break;
 		}

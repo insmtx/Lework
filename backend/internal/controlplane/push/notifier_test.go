@@ -343,6 +343,48 @@ func TestNotifierDedupesRedeliveredCompletion(t *testing.T) {
 	}
 }
 
+// TestNotifierSkipsChildCompletion 固化后台子代理语义：子会话跑完不推“执行完成”，
+// 否则主会话还在跑时用户就被提前叫走。审批仍然照推（见下一个用例）。
+func TestNotifierSkipsChildCompletion(t *testing.T) {
+	sender := &fakeSender{}
+	n := NewNotifier(fakeDevices{devices: []store.Device{{ID: "d1", PushToken: "tok"}}}, sender,
+		func(string) string { return "dev-box" },
+		WithParentSession(func(nodeID, sessionID string) string {
+			if nodeID == "n1" && sessionID == "ses_child" {
+				return "ses_parent"
+			}
+			return ""
+		}))
+
+	n.Handle(context.Background(), completionEvent("n1", "ses_child", "session.execution.succeeded", time.Now()))
+	n.Handle(context.Background(), completionEvent("n1", "ses_child", "session.execution.failed", time.Now()))
+
+	if got := sender.count(); got != 0 {
+		t.Fatalf("pushes = %d, want 0 for child completions", got)
+	}
+
+	// 根会话的完成照旧推送。
+	n.Handle(context.Background(), completionEvent("n1", "ses_parent", "session.execution.succeeded", time.Now()))
+	if got := sender.count(); got != 1 {
+		t.Fatalf("pushes = %d, want 1 for the root session completion", got)
+	}
+}
+
+// TestNotifierStillPushesChildPermission 证明过滤只针对完成通知：子会话的审批
+// 同样需要用户处理，不能因为它是子代理就静默。
+func TestNotifierStillPushesChildPermission(t *testing.T) {
+	sender := &fakeSender{}
+	n := NewNotifier(fakeDevices{devices: []store.Device{{ID: "d1", PushToken: "tok"}}}, sender,
+		func(string) string { return "dev-box" },
+		WithParentSession(func(string, string) string { return "ses_parent" }))
+
+	n.Handle(context.Background(), permissionAsked("n1", "ses_child", "perm_1"))
+
+	if got := sender.count(); got != 1 {
+		t.Fatalf("pushes = %d, want the child permission pushed", got)
+	}
+}
+
 type blockingSender struct {
 	release chan struct{}
 }

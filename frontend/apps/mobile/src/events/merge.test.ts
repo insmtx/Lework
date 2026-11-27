@@ -1,6 +1,6 @@
 import type { ControlEvent, OverviewNode } from "@lework/api";
 import { describe, expect, it } from "vitest";
-import { applyEvent, createOverviewState, isResyncEvent } from "./merge";
+import { applyEvent, createOverviewState, derivedState, isResyncEvent } from "./merge";
 
 const base: OverviewNode[] = [
 	{
@@ -211,6 +211,109 @@ describe("applyEvent", () => {
 		expect(isResyncEvent(resync, "node_1")).toBe(true);
 		expect(isResyncEvent(resync, "node_2")).toBe(false);
 		expect(isResyncEvent(asked("perm_1"))).toBe(false);
+	});
+
+	it("session.created 保存 parent_id", () => {
+		const state = applyEvent(
+			createOverviewState(base),
+			event({
+				session_id: "ses_child",
+				type: "session.created",
+				data: { parentID: "ses_1" },
+			}),
+		);
+		expect(sessionOf(state.nodes, "node_1", "ses_child")?.parent_id).toBe("ses_1");
+	});
+
+	it("子会话还在跑时父会话不提前 idle", () => {
+		let state = applyEvent(
+			createOverviewState(base),
+			event({ session_id: "ses_child", type: "session.created", data: { parentID: "ses_1" } }),
+		);
+		state = applyEvent(state, event({ type: "session.execution.succeeded" }));
+		expect(sessionOf(state.nodes)?.state).toBe("idle");
+
+		state = applyEvent(
+			state,
+			event({
+				session_id: "ses_child",
+				type: "session.execution.started",
+				time: "2026-11-12T00:02:00Z",
+			}),
+		);
+		expect(derivedState(state.nodes[0], "ses_1")).toBe("running");
+	});
+
+	it("子会话等审批时父会话显示 waiting_permission", () => {
+		let state = applyEvent(
+			createOverviewState(base),
+			event({ session_id: "ses_child", type: "session.created", data: { parentID: "ses_1" } }),
+		);
+		state = applyEvent(state, event({ type: "session.execution.succeeded" }));
+		state = applyEvent(state, asked("perm_1", "ses_child"));
+
+		expect(derivedState(state.nodes[0], "ses_1")).toBe("waiting_permission");
+	});
+
+	it("陈旧子会话和子会话失败都不改写父会话", () => {
+		let state = createOverviewState([
+			{
+				node_id: "node_1",
+				name: "dev-box",
+				connected: true,
+				sessions: [
+					{
+						session_id: "ses_1",
+						state: "running",
+						pending_permissions: 0,
+						last_activity: "2026-11-12T03:00:00Z",
+					},
+				],
+			},
+		]);
+		// 两小时前就卡住的孤儿子会话不能永久钉住父会话。
+		state = applyEvent(
+			state,
+			event({
+				session_id: "ses_stale",
+				type: "session.created",
+				data: { parentID: "ses_1" },
+				time: "2026-11-12T00:00:00Z",
+			}),
+		);
+		state = applyEvent(
+			state,
+			event({
+				session_id: "ses_stale",
+				type: "session.execution.started",
+				time: "2026-11-12T00:00:00Z",
+			}),
+		);
+		state = applyEvent(
+			state,
+			event({ type: "session.execution.succeeded", time: "2026-11-12T03:00:00Z" }),
+		);
+		expect(derivedState(state.nodes[0], "ses_1")).toBe("idle");
+
+		// 子代理失败也不把父会话标成 error。
+		state = applyEvent(
+			state,
+			event({
+				session_id: "ses_child",
+				type: "session.created",
+				data: { parentID: "ses_1" },
+				time: "2026-11-12T03:01:00Z",
+			}),
+		);
+		state = applyEvent(
+			state,
+			event({
+				session_id: "ses_child",
+				type: "session.execution.failed",
+				time: "2026-11-12T03:02:00Z",
+			}),
+		);
+		expect(derivedState(state.nodes[0], "ses_1")).toBe("idle");
 	});
 
 	it("不修改输入并按节点/活跃时间排序", () => {

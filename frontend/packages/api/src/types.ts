@@ -166,6 +166,8 @@ export interface OverviewSession {
 	/** 该会话待回答的表单数；旧控制面缺省时按 0 处理。 */
 	pending_forms?: number;
 	last_activity: string;
+	/** 子会话（subagent）的父会话 ID；顶层会话缺省。 */
+	parent_id?: string;
 }
 
 export interface OverviewNode {

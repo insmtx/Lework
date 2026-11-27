@@ -30,6 +30,133 @@ func TestApplyTracksPendingPermissions(t *testing.T) {
 	}
 }
 
+// sessionCreated 构造 session.created 事件；parentID 为空时 payload 不带该字段。
+func sessionCreated(nodeID, sessionID, parentID string, at time.Time) event.Event {
+	data := json.RawMessage(nil)
+	if parentID != "" {
+		data, _ = json.Marshal(map[string]string{"parentID": parentID})
+	}
+	return event.Event{NodeID: nodeID, SessionID: sessionID, Type: "session.created", Data: data, Time: at}
+}
+
+// sessionByID 按 session_id 取快照行，避免依赖排序。
+func sessionByID(sessions []Session, sessionID string) *Session {
+	for i := range sessions {
+		if sessions[i].SessionID == sessionID {
+			return &sessions[i]
+		}
+	}
+	return nil
+}
+
+// TestSnapshotAggregatesRunningChildIntoParent 固化后台子代理场景：父会话本轮
+// 已结束，但子会话还在跑时，总览不能让父会话提前显示 idle。
+func TestSnapshotAggregatesRunningChildIntoParent(t *testing.T) {
+	idx := NewIndex()
+	at := time.Now()
+	idx.Apply(sessionCreated("node_1", "ses_parent", "", at))
+	idx.Apply(sessionCreated("node_1", "ses_child", "ses_parent", at))
+	idx.Apply(event.Event{NodeID: "node_1", SessionID: "ses_parent", Type: "session.execution.succeeded", Time: at.Add(time.Second)})
+	idx.Apply(event.Event{NodeID: "node_1", SessionID: "ses_child", Type: "session.execution.started", Time: at.Add(2 * time.Second)})
+
+	parent := sessionByID(idx.Snapshot()[0].Sessions, "ses_parent")
+	if parent == nil || parent.State != StateRunning {
+		t.Fatalf("parent = %+v, want running while the child runs", parent)
+	}
+}
+
+// TestSnapshotAggregatesWaitingChildIntoParent 证明子会话等审批时父会话也进入
+// 等待态：用户需要知道整棵会话树都停在这里。
+func TestSnapshotAggregatesWaitingChildIntoParent(t *testing.T) {
+	idx := NewIndex()
+	at := time.Now()
+	idx.Apply(sessionCreated("node_1", "ses_parent", "", at))
+	idx.Apply(sessionCreated("node_1", "ses_child", "ses_parent", at))
+	idx.Apply(event.Event{NodeID: "node_1", SessionID: "ses_parent", Type: "session.execution.succeeded", Time: at.Add(time.Second)})
+	permission, _ := json.Marshal(map[string]string{"id": "perm_1"})
+	idx.Apply(event.Event{NodeID: "node_1", SessionID: "ses_child", Type: "permission.asked", Data: permission, Time: at.Add(2 * time.Second)})
+
+	parent := sessionByID(idx.Snapshot()[0].Sessions, "ses_parent")
+	if parent == nil || parent.State != StateWaitingPermission {
+		t.Fatalf("parent = %+v, want waiting_permission while the child waits", parent)
+	}
+}
+
+// TestSnapshotIgnoresStaleChildAndChildError 固化两个保护：长时间没有活动的
+// 孤儿子会话不能永久把父会话钉在 running，子代理失败也不把父会话传染成 error。
+func TestSnapshotIgnoresStaleChildAndChildError(t *testing.T) {
+	idx := NewIndex()
+	now := time.Now()
+	old := now.Add(-2 * time.Hour)
+
+	idx.Apply(sessionCreated("node_1", "ses_parent", "", now))
+	idx.Apply(sessionCreated("node_1", "ses_child", "ses_parent", old))
+	idx.Apply(event.Event{NodeID: "node_1", SessionID: "ses_child", Type: "session.execution.started", Time: old})
+	idx.Apply(event.Event{NodeID: "node_1", SessionID: "ses_parent", Type: "session.execution.succeeded", Time: now})
+
+	if parent := sessionByID(idx.Snapshot()[0].Sessions, "ses_parent"); parent == nil || parent.State != StateIdle {
+		t.Fatalf("parent = %+v, want idle: a stale child must not pin it running", parent)
+	}
+
+	failed := NewIndex()
+	failed.Apply(sessionCreated("node_1", "ses_parent", "", now))
+	failed.Apply(sessionCreated("node_1", "ses_child", "ses_parent", now))
+	failed.Apply(event.Event{NodeID: "node_1", SessionID: "ses_parent", Type: "session.execution.succeeded", Time: now})
+	failed.Apply(event.Event{NodeID: "node_1", SessionID: "ses_child", Type: "session.execution.failed", Time: now.Add(time.Second)})
+
+	if parent := sessionByID(failed.Snapshot()[0].Sessions, "ses_parent"); parent == nil || parent.State != StateIdle {
+		t.Fatalf("parent = %+v, want idle: a child failure must not mark the parent error", parent)
+	}
+}
+
+// TestParentIDSurvivesEventsAndSnapshots 证明 parentID 会随 session.created 投影，
+// 并且能穿过 owner 的快照回灌，否则别的实例永远无法判断谁是谁的子会话。
+func TestParentIDSurvivesEventsAndSnapshots(t *testing.T) {
+	idx := NewIndex()
+	at := time.Now()
+	idx.Apply(sessionCreated("node_1", "ses_child", "ses_parent", at))
+
+	if got := idx.ParentID("node_1", "ses_child"); got != "ses_parent" {
+		t.Fatalf("ParentID = %q, want ses_parent", got)
+	}
+	if got := idx.ParentID("node_1", "ses_missing"); got != "" {
+		t.Fatalf("ParentID(unknown) = %q, want empty", got)
+	}
+
+	snap := idx.SnapshotNode("node_1")
+	if child := sessionByID(snap, "ses_child"); child == nil || child.ParentID != "ses_parent" {
+		t.Fatalf("SnapshotNode child = %+v, want parent_id carried", child)
+	}
+
+	data, err := json.Marshal(map[string]any{"sessions": snap})
+	if err != nil {
+		t.Fatalf("marshal snapshot: %v", err)
+	}
+	restored := NewIndex()
+	restored.Apply(event.Event{NodeID: "node_1", Type: SnapshotEvent, Data: data, Time: at})
+	if got := restored.ParentID("node_1", "ses_child"); got != "ses_parent" {
+		t.Fatalf("ParentID after snapshot = %q, want ses_parent", got)
+	}
+}
+
+// TestSnapshotNodeKeepsRawState 防止 owner 发布的快照被聚合值污染：聚合只发生
+// 在读取投影时，否则每个实例会再聚合一次，状态会越滚越离谱。
+func TestSnapshotNodeKeepsRawState(t *testing.T) {
+	idx := NewIndex()
+	at := time.Now()
+	idx.Apply(sessionCreated("node_1", "ses_parent", "", at))
+	idx.Apply(sessionCreated("node_1", "ses_child", "ses_parent", at))
+	idx.Apply(event.Event{NodeID: "node_1", SessionID: "ses_parent", Type: "session.execution.succeeded", Time: at.Add(time.Second)})
+	idx.Apply(event.Event{NodeID: "node_1", SessionID: "ses_child", Type: "session.execution.started", Time: at.Add(2 * time.Second)})
+
+	if parent := sessionByID(idx.SnapshotNode("node_1"), "ses_parent"); parent == nil || parent.State != StateIdle {
+		t.Fatalf("SnapshotNode parent = %+v, want the raw idle state", parent)
+	}
+	if parent := sessionByID(idx.Snapshot()[0].Sessions, "ses_parent"); parent == nil || parent.State != StateRunning {
+		t.Fatalf("Snapshot parent = %+v, want aggregated running", parent)
+	}
+}
+
 func TestApplyTerminalStates(t *testing.T) {
 	idx := NewIndex()
 	idx.Apply(event.Event{NodeID: "node_1", SessionID: "ses_1", Type: "session.created"})
