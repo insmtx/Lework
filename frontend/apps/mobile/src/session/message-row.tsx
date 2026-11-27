@@ -52,12 +52,15 @@ export function MessageRow({
 	isLastMessage,
 	nodeID,
 	sessionID,
+	directory,
 }: {
 	message: Message;
 	/** 是否为本会话最后一条消息；最后一张工具卡片据此决定完成后的折叠时机。 */
 	isLastMessage: boolean;
 	nodeID: string;
 	sessionID: string;
+	/** 会话工作目录：正文里相对文件链接按它解析。 */
+	directory: string;
 }) {
 	const theme = useTheme();
 	const styles = useThemedStyles(createStyles);
@@ -87,7 +90,12 @@ export function MessageRow({
 			{text ? (
 				<View style={[styles.bubble, isUser ? styles.userBubble : styles.assistantBubble]}>
 					{markdown ? (
-						<MarkdownBody content={text} scheme={theme.scheme} />
+						<MarkdownBody
+							content={text}
+							scheme={theme.scheme}
+							nodeID={nodeID}
+							directory={directory}
+						/>
 					) : (
 						<Text selectable style={[styles.messageText, isUser && styles.userMessageText]}>
 							{text}
@@ -111,6 +119,7 @@ export function MessageRow({
 							isLast={isLastMessage && index === tools.length - 1}
 							nodeID={nodeID}
 							sessionID={sessionID}
+							directory={directory}
 						/>
 					))}
 				</View>

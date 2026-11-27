@@ -56,6 +56,7 @@ export function SubagentSheet({
 	raw,
 	nodeID,
 	sessionID,
+	directory,
 	onClose,
 }: {
 	visible: boolean;
@@ -69,6 +70,8 @@ export function SubagentSheet({
 	nodeID: string;
 	/** 父会话 id：用于查这次调用创建的子会话。 */
 	sessionID: string;
+	/** 父会话工作目录：子会话没带目录时兜底解析相对文件链接。 */
+	directory: string;
 	onClose: () => void;
 }) {
 	const styles = useToolStyles();
@@ -158,6 +161,7 @@ export function SubagentSheet({
 						child={child}
 						title={title}
 						nodeID={nodeID}
+						directory={directory}
 						paddingBottom={insets.bottom + 24}
 					/>
 				) : null}
@@ -176,6 +180,7 @@ function SubagentBody({
 	child,
 	title,
 	nodeID,
+	directory,
 	paddingBottom,
 }: {
 	detail: SubagentView;
@@ -187,6 +192,7 @@ function SubagentBody({
 	child: Session | null;
 	title: string;
 	nodeID: string;
+	directory: string;
 	paddingBottom: number;
 }) {
 	const theme = useTheme();
@@ -237,6 +243,7 @@ function SubagentBody({
 					jumpToLatest={session.jumpToLatest}
 					nodeID={nodeID}
 					childSessionID={childSessionID}
+					directory={child?.directory || directory}
 					title={title}
 					description={detail.description ?? ""}
 					meta={meta}
@@ -267,6 +274,7 @@ function LiveConversation({
 	jumpToLatest,
 	nodeID,
 	childSessionID,
+	directory,
 	title,
 	description,
 	meta,
@@ -281,6 +289,7 @@ function LiveConversation({
 	jumpToLatest: () => void;
 	nodeID: string;
 	childSessionID: string;
+	directory: string;
 	title: string;
 	description: string;
 	meta: string;
@@ -319,6 +328,7 @@ function LiveConversation({
 						isLastMessage={index === visible.length - 1}
 						nodeID={nodeID}
 						sessionID={childSessionID}
+						directory={directory}
 					/>
 				)}
 				refreshControl={<RefreshControl refreshing={loading} onRefresh={refresh} />}

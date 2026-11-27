@@ -131,6 +131,18 @@ export function truncationNotice(truncated: boolean): string | null {
 	return truncated ? "文件较大，仅显示前 512 KiB" : null;
 }
 
+// formatFileSize 给页面顶部的元信息用；下载上限 100 MiB，MB 足够。
+export function formatFileSize(bytes: number): string {
+	if (bytes < 1024) {
+		return `${bytes} B`;
+	}
+	const kilobytes = bytes / 1024;
+	if (kilobytes < 1024) {
+		return `${kilobytes.toFixed(1)} KB`;
+	}
+	return `${(kilobytes / 1024).toFixed(1)} MB`;
+}
+
 // openWithSystemApp 把下载好的文件交给系统查看器；没有可用的分享/打开
 // 能力时抛错，由页面展示。
 export async function openWithSystemApp(uri: string, path: string): Promise<void> {

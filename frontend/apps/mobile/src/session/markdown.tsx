@@ -1,9 +1,12 @@
-import { memo } from "react";
+import { router } from "expo-router";
+import { memo, useCallback } from "react";
 import { StyleSheet } from "react-native";
 import Markdown, { renderRules } from "react-native-markdown-display";
 
+import { fileRoute } from "../config";
 import { type ColorScheme, darkTheme, lightTheme, type Theme } from "../theme/theme";
 import { useFontScale } from "../theme/use-theme";
+import { resolveFileLink } from "./file-links";
 import { withSelectableText } from "./selectable-rules";
 
 // 长按选中复制：正文里的文本节点都来自默认规则，统一补 selectable。
@@ -136,18 +139,38 @@ function markdownStyles(scheme: ColorScheme, scale: number) {
  * MarkdownBody 渲染助手回复的 Markdown。
  *
  * scheme 与全局字号倍率都参与 memo 比较：系统切换亮暗或用户改字号时，
- * 即使消息内容没变也要重新渲染。
+ * 即使消息内容没变也要重新渲染。传了 nodeID 与 directory 时，指向项目
+ * 文件的链接在应用内打开预览，其余链接仍交给系统浏览器。
  */
 export const MarkdownBody = memo(function MarkdownBody({
 	content,
 	scheme,
+	nodeID,
+	directory,
 }: {
 	content: string;
 	scheme: ColorScheme;
+	nodeID?: string;
+	directory?: string;
 }) {
 	const scale = useFontScale();
+	const onLinkPress = useCallback(
+		(url: string) => {
+			const target = nodeID ? resolveFileLink(url, directory ?? "") : null;
+			if (!target || !nodeID) {
+				return true;
+			}
+			router.push(fileRoute(nodeID, target.directory, target.path));
+			return false;
+		},
+		[nodeID, directory],
+	);
 	return (
-		<Markdown style={markdownStyles(scheme, scale)} rules={selectableRules}>
+		<Markdown
+			style={markdownStyles(scheme, scale)}
+			rules={selectableRules}
+			onLinkPress={onLinkPress}
+		>
 			{content}
 		</Markdown>
 	);

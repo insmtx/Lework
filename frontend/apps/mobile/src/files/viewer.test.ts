@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { mimeTypeFor, previewKind, truncationNotice } from "./viewer";
+import { formatFileSize, mimeTypeFor, previewKind, truncationNotice } from "./viewer";
 
 describe("previewKind", () => {
 	it("按扩展名分流", () => {
@@ -27,5 +27,13 @@ describe("truncationNotice", () => {
 	it("只在被截断时提示", () => {
 		expect(truncationNotice(true)).toBe("文件较大，仅显示前 512 KiB");
 		expect(truncationNotice(false)).toBeNull();
+	});
+});
+
+describe("formatFileSize", () => {
+	it("按 B / KB / MB 显示", () => {
+		expect(formatFileSize(512)).toBe("512 B");
+		expect(formatFileSize(2048)).toBe("2.0 KB");
+		expect(formatFileSize(3 * 1024 * 1024)).toBe("3.0 MB");
 	});
 });

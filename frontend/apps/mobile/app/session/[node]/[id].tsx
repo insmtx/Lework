@@ -223,6 +223,11 @@ export default function SessionScreen() {
 	const title = current?.title || "会话";
 	useScreenTitle(title);
 
+	// 正文里的相对文件链接按会话目录解析；项目刚聚合出来、会话还没带上目录时，
+	// 退回该节点上的检出路径。
+	const messageDirectory =
+		current?.directory || (project ? projectDirectoryOnNode(project, nodeID) : "");
+
 	// 顶栏圆点标识当前会话属于哪台电脑；颜色只做机器身份，不替代状态。
 	const nodeColor = useMemo(
 		() => nodeColorSwatch(projects.nodes.find((node) => node.id === nodeID)?.color),
@@ -417,6 +422,7 @@ export default function SessionScreen() {
 							isLastMessage={index === visibleMessages.length - 1}
 							nodeID={nodeID}
 							sessionID={sessionID}
+							directory={messageDirectory}
 						/>
 					)}
 					refreshControl={<RefreshControl refreshing={loading} onRefresh={refresh} />}
