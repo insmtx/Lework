@@ -1,6 +1,11 @@
 import type { Session } from "@lework/api";
 import { describe, expect, it } from "vitest";
-import { selectProjectSessions, selectSiblingSessions, sortSessionsByActivity } from "./select";
+import {
+	recentProjectOptions,
+	selectProjectSessions,
+	selectSiblingSessions,
+	sortSessionsByActivity,
+} from "./select";
 
 function session(overrides: Partial<Session> & { id: string }): Session {
 	return { ...overrides } as Session;
@@ -76,5 +81,26 @@ describe("sortSessionsByActivity", () => {
 		];
 		const sorted = sortSessionsByActivity(refs);
 		expect(sorted.map((ref) => ref.session.id)).toEqual(["new", "old", "unknown"]);
+	});
+});
+
+describe("recentProjectOptions", () => {
+	it("按出现顺序去重，跳过没有项目的行", () => {
+		const options = recentProjectOptions([
+			{ projectKey: "repo-a", projectName: "A" },
+			{ projectKey: null, projectName: "" },
+			{ projectKey: "repo-b", projectName: "B" },
+			{ projectKey: "repo-a", projectName: "A" },
+		]);
+		expect(options).toEqual([
+			{ key: "repo-a", label: "A" },
+			{ key: "repo-b", label: "B" },
+		]);
+	});
+
+	it("没有名字时退回键本身", () => {
+		expect(recentProjectOptions([{ projectKey: "repo-a", projectName: "" }])).toEqual([
+			{ key: "repo-a", label: "repo-a" },
+		]);
 	});
 });

@@ -72,3 +72,28 @@ export function sortSessionsByActivity(refs: ProjectSessionRef[]): ProjectSessio
 		return 0;
 	});
 }
+
+/** RecentProjectOption 是最近会话筛选弹层里的一项。 */
+export interface RecentProjectOption {
+	key: string;
+	label: string;
+}
+
+/**
+ * recentProjectOptions 从最近会话行里提取可筛选的项目。
+ *
+ * 只列出现过的项目并按出现顺序去重：筛选一个没有最近会话的项目只会得到
+ * 空列表；没有归属项目的行（key 为 null）只在「全部」下出现。
+ */
+export function recentProjectOptions(
+	rows: { projectKey: string | null; projectName: string }[],
+): RecentProjectOption[] {
+	const seen = new Set<string>();
+	const out: RecentProjectOption[] = [];
+	for (const row of rows) {
+		if (!row.projectKey || seen.has(row.projectKey)) continue;
+		seen.add(row.projectKey);
+		out.push({ key: row.projectKey, label: row.projectName || row.projectKey });
+	}
+	return out;
+}
