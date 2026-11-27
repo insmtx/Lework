@@ -80,6 +80,9 @@ export function useControlEvents(
 		let source: EventSource | null = null;
 		let timer: ReturnType<typeof setTimeout> | null = null;
 		let attempt = 0;
+		// opened 标记已经成功建过流：重连成功后断线期间的增量已永久丢失，
+		// 必须重拉快照对账；首连由调用方挂载时的快照负责，不用重复拉。
+		let opened = false;
 
 		const clearTimer = () => {
 			if (timer) clearTimeout(timer);
@@ -121,6 +124,8 @@ export function useControlEvents(
 				if (source !== next) return;
 				attempt = 0;
 				setConnected(true);
+				if (opened) onResyncRef.current();
+				opened = true;
 			});
 			next.addEventListener("message", (message) => {
 				if (!message.data) return;
