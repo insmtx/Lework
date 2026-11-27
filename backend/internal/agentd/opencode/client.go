@@ -418,7 +418,9 @@ func (c *Client) ReadFile(ctx context.Context, directory, path string, offset, m
 		return FileContent{}, fmt.Errorf("read opencode file body: %w", err)
 	}
 
-	size := int64(len(data))
+	// size 为 0 表示服务端没给出总大小。此时不能把块长当成文件总长：
+	// 控制面会据此设置 Content-Length 并在读满一块后停下，大文件被静默截断。
+	size := int64(0)
 	truncated := false
 	if contentRange := resp.Header.Get("Content-Range"); contentRange != "" {
 		if slash := strings.LastIndexByte(contentRange, '/'); slash >= 0 {
@@ -427,12 +429,13 @@ func (c *Client) ReadFile(ctx context.Context, directory, path string, offset, m
 				truncated = offset+int64(len(data)) < total
 			}
 		}
-	} else if resp.StatusCode == http.StatusPartialContent {
-		// 分块响应没有总大小：只能按“是否读满一块”判断后面还有没有数据。
-		truncated = int64(len(data)) >= maxBytes
-	} else if resp.ContentLength >= 0 {
+	} else if resp.StatusCode == http.StatusOK && resp.ContentLength >= 0 {
 		size = resp.ContentLength
 		truncated = int64(len(data)) < resp.ContentLength
+	}
+	if size == 0 {
+		// 没有总大小时只能按“是否读满一块”判断后面还有没有数据。
+		truncated = int64(len(data)) >= maxBytes
 	}
 
 	return FileContent{

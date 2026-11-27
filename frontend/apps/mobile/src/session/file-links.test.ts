@@ -30,6 +30,10 @@ describe("resolveFileLink", () => {
 			directory: "/repo/docs/",
 			path: "plan.md",
 		});
+		expect(resolveFileLink("file:///C:/repo/docs/plan.md", "/repo")).toEqual({
+			directory: "C:/repo/docs/",
+			path: "plan.md",
+		});
 	});
 
 	it("Windows 绝对路径不被当成 URL scheme", () => {

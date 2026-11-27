@@ -1199,6 +1199,46 @@ func TestFileReadPassesOffset(t *testing.T) {
 	}
 }
 
+func TestFileReadTrimsPartialRuneAtTruncation(t *testing.T) {
+	root := t.TempDir()
+	// 512 KiB 的截断点可能落在多字节字符中间：末尾两个字节是「中」的前半段。
+	oc := &fakeOpenCode{readFileContent: opencode.FileContent{
+		Data:      []byte("你好\xe4\xb8"),
+		Size:      600 << 10,
+		Truncated: true,
+	}}
+	h := New(oc, fakeSupervisor{}, WithWorkspaceRoots(root))
+
+	params, _ := json.Marshal(FileReadParams{Directory: root, Path: "a.md"})
+	result, err := h.Handle(context.Background(), "file.read", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := result.(FileReadResult)
+	if !ok || got.Encoding != "utf-8" || got.Content != "你好" {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestFileReadKeepsBase64WithoutTruncation(t *testing.T) {
+	root := t.TempDir()
+	oc := &fakeOpenCode{readFileContent: opencode.FileContent{
+		Data: []byte("你好\xe4\xb8"),
+		Size: 8,
+	}}
+	h := New(oc, fakeSupervisor{}, WithWorkspaceRoots(root))
+
+	params, _ := json.Marshal(FileReadParams{Directory: root, Path: "a.bin"})
+	result, err := h.Handle(context.Background(), "file.read", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := result.(FileReadResult)
+	if !ok || got.Encoding != "base64" {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
 func TestFileReadRejectsNegativeOffset(t *testing.T) {
 	root := t.TempDir()
 	oc := &fakeOpenCode{}

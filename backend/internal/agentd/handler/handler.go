@@ -667,11 +667,17 @@ func (h *Handler) readFile(ctx context.Context, params json.RawMessage) (any, er
 		return nil, err
 	}
 
+	// 截断点可能落在多字节字符中间：末尾最多 3 个不完整字节只影响编码判断，
+	// 去掉后仍按文本展示，否则中文文档会被误判成二进制。
+	data := content.Data
+	if content.Truncated {
+		data = trimPartialRune(data)
+	}
 	encoding := "base64"
 	encoded := base64.StdEncoding.EncodeToString(content.Data)
-	if utf8.Valid(content.Data) && !bytes.ContainsRune(content.Data, '\x00') {
+	if utf8.Valid(data) && !bytes.ContainsRune(data, '\x00') {
 		encoding = "utf-8"
-		encoded = string(content.Data)
+		encoded = string(data)
 	}
 	return FileReadResult{
 		Path:      filepath.ToSlash(rel),
@@ -680,6 +686,19 @@ func (h *Handler) readFile(ctx context.Context, params json.RawMessage) (any, er
 		Size:      content.Size,
 		Truncated: content.Truncated,
 	}, nil
+}
+
+// trimPartialRune 去掉末尾不完整的 UTF-8 字符，最多 4 个字节。
+func trimPartialRune(data []byte) []byte {
+	for i := 1; i <= utf8.UTFMax && i <= len(data); i++ {
+		if utf8.RuneStart(data[len(data)-i]) {
+			if !utf8.FullRune(data[len(data)-i:]) {
+				return data[:len(data)-i]
+			}
+			return data
+		}
+	}
+	return data
 }
 
 // createPTY starts a session-scoped terminal. Cwd is the session directory, so

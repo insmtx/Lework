@@ -78,8 +78,35 @@ export async function downloadFile({
 	);
 
 	const result = await resumable.downloadAsync();
-	if (!result?.uri || result.status < 200 || result.status >= 300) {
-		throw new Error(`下载文件失败：HTTP ${result?.status ?? "未知"}`);
+	const status = result?.status ?? 0;
+	if (!result?.uri || status < 200 || status >= 300) {
+		// 只有明确的 4xx/5xx 才再请求一次读错误 JSON：成功响应可能很大，
+		// 不能为了取错误把整份文件拉进内存。
+		const message = status >= 400 ? await downloadFailure(url, headers) : null;
+		throw new Error(message ?? `下载文件失败：HTTP ${status || "未知"}`);
 	}
 	return result.uri;
+}
+
+// downloadFailure 把控制面的错误码翻译成可读中文，读不到就退回状态码。
+async function downloadFailure(
+	url: string,
+	headers: Record<string, string>,
+): Promise<string | null> {
+	try {
+		const response = await fetch(url, { headers });
+		const body = (await response.json()) as { code?: string; message?: string };
+		switch (body.code) {
+			case "file_too_large":
+				return "文件超过 100 MiB，无法预览";
+			case "node_offline":
+				return "节点已离线，无法读取文件";
+			case "not_found":
+				return "文件不存在";
+			default:
+				return body.message ?? null;
+		}
+	} catch {
+		return null;
+	}
 }

@@ -184,6 +184,12 @@ func (a *API) handleFileDownload(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 		offset += int64(len(data))
+		if offset > maxFileDownloadBytes {
+			// 节点没报总大小时首块检查拦不住，这里按已写字节数硬停。
+			logs.Warnf("controlplane: file download exceeded %d bytes for node %s path %q",
+				maxFileDownloadBytes, nodeID, path)
+			return
+		}
 		if !chunk.Truncated {
 			return
 		}
@@ -216,10 +222,10 @@ func fileQuery(w http.ResponseWriter, r *http.Request) (directory, path string, 
 	return directory, query.Get("path"), true
 }
 
-// absoluteDirectory 接受 POSIX 绝对路径和 Windows 盘符路径，节点平台由
-// agent 自己决定，控制面无法在请求时得知。
+// absoluteDirectory 接受 POSIX 绝对路径和 Windows 盘符/UNC 路径，节点平台
+// 由 agent 自己决定，控制面无法在请求时得知。
 func absoluteDirectory(path string) bool {
-	return filepath.IsAbs(path) || windowsAbsPath.MatchString(path)
+	return filepath.IsAbs(path) || windowsAbsPath.MatchString(path) || strings.HasPrefix(path, `\\`)
 }
 
 // requireNode distinguishes an unregistered node (404) from a registered but
