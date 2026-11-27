@@ -1,9 +1,9 @@
-import { useCallback, useRef, useState } from "react";
+import { type ComponentRef, useCallback, useRef, useState } from "react";
 import type {
-	FlatList,
 	LayoutChangeEvent,
 	NativeScrollEvent,
 	NativeSyntheticEvent,
+	ScrollView,
 } from "react-native";
 
 import { bottomOffset, followOffset, isFarFromBottom, isNearBottom } from "./scroll";
@@ -14,13 +14,9 @@ const GESTURE_IDLE_MS = 300;
 /**
  * keepVisibleContent 交给 native 的 maintainVisibleContentPosition。
  *
- * 没有 getItemLayout 时，虚拟列表用「已测量行的平均高度」估算没测量的行，
- * 也就是视口上下的 spacer。流式输出让最后一条消息每帧变高，平均高度随之
- * 漂移，spacer 就跟着伸缩——整块内容被顶上或顶下几十到几百像素，要等下一帧
- * JS 再滚回来才回到原位，看起来就是持续闪跳；工具输出一次吐几十行时最明显。
- *
- * 开启后 native 在同一次布局提交里按第一个可见子视图的位移补正偏移，不经过
- * JS，所以不会出现「先跳后滚」。iOS 与 Android 新架构都支持。
+ * 消息流不再虚拟化（见页面里的 ScrollView），但视口上方的行仍可能变高
+ * （例如上方工具卡自动折叠）；开启后 native 在同一次布局提交里按第一个
+ * 可见子视图的位移补正偏移，不经过 JS。iOS 与 Android 新架构都支持。
  */
 export const keepVisibleContent = { minIndexForVisible: 0 } as const;
 
@@ -38,24 +34,20 @@ export interface AutoFollowHandlers {
 /**
  * useAutoFollow 让消息流稳定地跟随底部。
  *
- * 不用 FlatList.scrollToEnd 做流式跟随：它在没有 getItemLayout 的变高列表里按
- * 已测量行的平均高度估算末尾（RN 源码注明这样会 janky），而滚动本身又会改变
- * 测量窗口，流式期间会形成「滚动 → 重新测量 → 内容尺寸变化 → 再滚动」的自激
- * 循环，表现为上下乱跳。这里改为用 onContentSizeChange 给的真实高度贴底。
+ * 消息流用普通 ScrollView 渲染，不用 FlatList：没有 getItemLayout 的虚拟列表
+ * 会用「已测量行的平均高度」估算没渲染的行（视口上下的 spacer），而流式输出
+ * 持续改变平均高度，spacer 就成倍伸缩，内容被顶上/顶下几十到几百像素，JS 再
+ * 下一帧滚回来——表现就是来回跳。
  *
- * 但首屏落底必须用 scrollToEnd：没有 getItemLayout 时虚拟列表会把尾部 spacer
- * 限制在已测量范围，onContentSizeChange 报的高度只覆盖已测量行；按它算偏移会
- * 停在半路。scrollToEnd 按平均行高估算真正末尾，一次到底，之后的内容增长再交
- * 给真实高度逐帧追。
+ * 贴底用 onContentSizeChange 给的真实内容高度算偏移，不用 scrollToEnd 的估算。
+ * 首屏仍用 scrollToEnd：一次落到绝对底部，之后的内容增长交给真实高度逐帧追。
  *
- * 跟随状态只看用户发起的手势帧（拖动与其惯性），程序化贴底产生的帧不参与判断：
- * 首屏分批测量时，一次贴底的中间帧可能暂时不在底部，按它判断会把跟随误关，
- * 消息流就停在半路。手势可能漏发结束事件，用 300ms 静默看门狗兜底。
+ * 跟随状态只看用户发起的手势帧（拖动与其惯性），程序化贴底产生的帧不参与判断。
+ * 手势可能漏发结束事件，用 300ms 静默看门狗兜底。
  *
- * 贴底只向底部追：内容高度因虚拟列表重新测量而变小时不主动回滚，交给系统
- * 把偏移夹回新的底部，避免和流式增长对拉出抖动。
+ * 贴底只向底部追：内容高度变小时不主动回滚，交给系统把偏移夹回新的底部。
  */
-export function useAutoFollow<T>({
+export function useAutoFollow({
 	following,
 	setFollowing,
 	onAtBottom,
@@ -66,7 +58,7 @@ export function useAutoFollow<T>({
 	/** 滚动落到贴底位置时回调；调用方需自行节流。 */
 	onAtBottom?: () => void;
 }) {
-	const listRef = useRef<FlatList<T>>(null);
+	const listRef = useRef<ComponentRef<typeof ScrollView>>(null);
 	const contentHeight = useRef(0);
 	const viewportHeight = useRef(0);
 	// 离底部超过半屏时露出「回到底部」；滚动帧里更新，避免小幅上滑就弹按钮。
@@ -107,7 +99,7 @@ export function useAutoFollow<T>({
 		if (next === null) return;
 		// 自动贴底不做动画：流式增量会让动画不断被重启，而且动画的中间帧
 		// 会被误当成用户滚动。瞬时落到底反而更稳。
-		listRef.current?.scrollToOffset({ offset: next, animated: false });
+		listRef.current?.scrollTo({ y: next, animated: false });
 	}, [releaseStaleGesture]);
 
 	const applyFollowing = useCallback(

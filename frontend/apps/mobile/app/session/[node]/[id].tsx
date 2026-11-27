@@ -1,11 +1,12 @@
-import type { Message, PendingPermission, Session } from "@lework/api";
+import type { PendingPermission, Session } from "@lework/api";
 import { router, useLocalSearchParams } from "expo-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	FlatList,
 	Modal,
 	Pressable,
 	RefreshControl,
+	ScrollView,
 	StyleSheet,
 	Text,
 	TextInput,
@@ -39,8 +40,7 @@ function param(value: string | string[] | undefined): string {
 	return Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
 }
 
-// 用分隔组件而不是 contentContainerStyle.gap：虚拟列表的 spacer 也是直接子节点，
-// gap 会随渲染窗口变化凭空改变内容高度，贴底滚动就会被带着抖。
+// 消息之间留固定间隔；规则和子代理页一致，两处消息流的行距才一样。
 function MessageSeparator() {
 	return <View style={{ height: 12 }} />;
 }
@@ -296,7 +296,7 @@ export default function SessionScreen() {
 		follow: followLatest,
 		reset: resetFollow,
 		farFromBottom,
-	} = useAutoFollow<Message>({
+	} = useAutoFollow({
 		following,
 		setFollowing,
 		// 用户自己滚回底部也算看完当前内容，水位继续前进。
@@ -408,59 +408,64 @@ export default function SessionScreen() {
 			{actionError ? <Text style={styles.error}>{actionError}</Text> : null}
 
 			<View style={styles.messagesWrap}>
-				<FlatList
+				{/*
+				 * 不用 FlatList：没有 getItemLayout 时它按「已测量行的平均高度」估算
+				 * 没渲染的行生成 spacer，流式输出一涨平均高度就漂，spacer 成倍伸缩，
+				 * 内容被顶上顶下、下一帧再滚回来，就是执行中来回跳的来源。移动端
+				 * 本来只取最新一页（≤200 条），整页挂出来反而没有估算。
+				 */}
+				<ScrollView
 					ref={listRef}
 					style={styles.messages}
 					contentContainerStyle={styles.messagesContent}
-					data={visibleMessages}
-					keyExtractor={(message) => message.id}
-					// 字号与展示偏好变化时，行内内容必须一起重排；字号通过主题样式与 context 自动更新。
-					extraData={`${preferences.toolDisplay}:${preferences.processDisplay}`}
-					renderItem={({ item, index }) => (
-						<MessageRow
-							message={item}
-							isLastMessage={index === visibleMessages.length - 1}
-							nodeID={nodeID}
-							sessionID={sessionID}
-							directory={messageDirectory}
-						/>
-					)}
 					refreshControl={<RefreshControl refreshing={loading} onRefresh={refresh} />}
-					ItemSeparatorComponent={MessageSeparator}
 					maintainVisibleContentPosition={keepVisibleContent}
-					// 表单卡在 footer 里有输入框；默认的 never 会吞掉「键盘弹起后第一次点选项」。
+					// 表单卡里有输入框；默认的 never 会吞掉「键盘弹起后第一次点选项」。
 					keyboardShouldPersistTaps="handled"
 					{...listHandlers}
 					scrollEventThrottle={16}
-					ListFooterComponent={
-						forms.length + permissions.length > 0 ? (
-							<View style={styles.approvals}>
-								{forms.map((form) => (
-									<FormCard
-										key={form.id}
-										form={form}
-										onSubmit={(answer) => replyForm(form.id, answer)}
-										onCancel={() => cancelForm(form.id)}
-									/>
-								))}
-								{permissions.map((permission) => (
-									<ApprovalCard
-										key={permission.id}
-										permission={permission}
-										onReply={(decision, message) => reply(permission.id, decision, message)}
-									/>
-								))}
-							</View>
-						) : undefined
-					}
-					ListEmptyComponent={
-						loading ? undefined : (
+				>
+					{visibleMessages.length === 0 ? (
+						loading ? null : (
 							<View style={styles.center}>
 								<Text style={styles.hint}>No messages yet.</Text>
 							</View>
 						)
-					}
-				/>
+					) : (
+						visibleMessages.map((message, index) => (
+							<Fragment key={message.id}>
+								{index > 0 ? <MessageSeparator /> : null}
+								<MessageRow
+									message={message}
+									isLastMessage={index === visibleMessages.length - 1}
+									nodeID={nodeID}
+									sessionID={sessionID}
+									directory={messageDirectory}
+								/>
+							</Fragment>
+						))
+					)}
+
+					{forms.length + permissions.length > 0 ? (
+						<View style={styles.approvals}>
+							{forms.map((form) => (
+								<FormCard
+									key={form.id}
+									form={form}
+									onSubmit={(answer) => replyForm(form.id, answer)}
+									onCancel={() => cancelForm(form.id)}
+								/>
+							))}
+							{permissions.map((permission) => (
+								<ApprovalCard
+									key={permission.id}
+									permission={permission}
+									onReply={(decision, message) => reply(permission.id, decision, message)}
+								/>
+							))}
+						</View>
+					) : null}
+				</ScrollView>
 
 				{hasNewBelow || farFromBottom ? (
 					<View style={styles.newContentWrap} pointerEvents="box-none">

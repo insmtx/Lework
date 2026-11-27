@@ -1,7 +1,7 @@
 import type { Message, Session, SessionState } from "@lework/api";
 import type { SubagentView, ToolBlock } from "@lework/tool-view";
-import { type ComponentRef, useEffect, useMemo, useRef, useState } from "react";
-import { FlatList, Modal, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
+import { type ComponentRef, Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Modal, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { createClient } from "../../api/client";
@@ -24,8 +24,7 @@ import { useToolStyles } from "./use-tool-styles";
 // 子会话可能在打开面板后才创建（执行中），轮询间隔够跟上首个会话又不过度打服务端。
 const CHILD_POLL_MS = 2_000;
 
-// 用分隔组件而不是 contentContainerStyle.gap：虚拟列表的 spacer 也是直接子节点，
-// gap 会随渲染窗口变化凭空改变内容高度，贴底滚动就会被带着抖。
+// 消息之间留固定间隔；规则和会话页一致，子代理流与主会话流看起来才是一套。
 function LiveSeparator() {
 	return <View style={{ height: 12 }} />;
 }
@@ -301,7 +300,7 @@ function LiveConversation({
 		() => filterVisibleMessages(messages, preferences),
 		[messages, preferences],
 	);
-	const { listRef, handlers, follow, reset } = useAutoFollow<Message>({
+	const { listRef, handlers, follow, reset } = useAutoFollow({
 		following,
 		setFollowing,
 	});
@@ -314,44 +313,48 @@ function LiveConversation({
 
 	return (
 		<View style={styles.sheetBody}>
-			<FlatList
+			{/*
+			 * 不用 FlatList：没有 getItemLayout 时它按「已测量行的平均高度」估算没渲染
+			 * 的行生成 spacer，流式输出一涨平均高度就漂，spacer 成倍伸缩，内容被顶上
+			 * 顶下、下一帧再滚回来，就是执行中来回跳的来源。子会话同样只取最新一页。
+			 */}
+			<ScrollView
 				ref={listRef}
 				style={styles.sheetBody}
 				contentContainerStyle={[styles.sheetLiveContent, { paddingBottom }]}
-				data={visible}
-				keyExtractor={(message) => message.id}
-				// 展示偏好变化时行内内容要一起重排；字号通过主题样式与 context 自动更新。
-				extraData={`${preferences.toolDisplay}:${preferences.processDisplay}`}
-				renderItem={({ item, index }) => (
-					<MessageRow
-						message={item}
-						isLastMessage={index === visible.length - 1}
-						nodeID={nodeID}
-						sessionID={childSessionID}
-						directory={directory}
-					/>
-				)}
 				refreshControl={<RefreshControl refreshing={loading} onRefresh={refresh} />}
 				maintainVisibleContentPosition={keepVisibleContent}
-				ListHeaderComponent={
-					<View style={styles.sheetMeta}>
-						{meta ? <Text style={styles.sheetMetaText}>{meta}</Text> : null}
-						{description && description !== title ? (
-							<Text style={styles.sheetDescription}>{description}</Text>
-						) : null}
-					</View>
-				}
-				ListEmptyComponent={
+				{...handlers}
+				scrollEventThrottle={16}
+			>
+				<View style={styles.sheetMeta}>
+					{meta ? <Text style={styles.sheetMetaText}>{meta}</Text> : null}
+					{description && description !== title ? (
+						<Text style={styles.sheetDescription}>{description}</Text>
+					) : null}
+				</View>
+
+				{visible.length === 0 ? (
 					loading ? (
 						<BrandSpinner size={20} style={styles.sheetLoading} />
 					) : (
 						<Text style={styles.muted}>子代理还没有输出。</Text>
 					)
-				}
-				ItemSeparatorComponent={LiveSeparator}
-				{...handlers}
-				scrollEventThrottle={16}
-			/>
+				) : (
+					visible.map((message, index) => (
+						<Fragment key={message.id}>
+							{index > 0 ? <LiveSeparator /> : null}
+							<MessageRow
+								message={message}
+								isLastMessage={index === visible.length - 1}
+								nodeID={nodeID}
+								sessionID={childSessionID}
+								directory={directory}
+							/>
+						</Fragment>
+					))
+				)}
+			</ScrollView>
 
 			{hasNewBelow ? (
 				<View style={styles.sheetNewContentWrap} pointerEvents="box-none">

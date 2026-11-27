@@ -1,5 +1,5 @@
 import type { Message } from "@lework/api";
-import { useState } from "react";
+import { memo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import type { Theme } from "../theme/theme";
@@ -46,8 +46,12 @@ export function ReasoningCard({ message, mode }: { message: Message; mode: "brie
  * 会话页与子代理全屏页共用这一份渲染，避免子代理对话出现另一套样式。
  * nodeID 用于工具卡片的子代理详情与文件预览；sessionID 用于定位该会话
  * 下的子代理子会话。
+ *
+ * 消息流不再虚拟化，整页都会挂载；memo 让流式增量只重绘真正变化的那条
+ * （mergeSnapshot 对没变的快照消息保持原对象引用），否则每次 delta 都要
+ * 重走两百行的 markdown 比较。
  */
-export function MessageRow({
+export const MessageRow = memo(function MessageRow({
 	message,
 	isLastMessage,
 	nodeID,
@@ -131,7 +135,7 @@ export function MessageRow({
 			) : null}
 		</View>
 	);
-}
+});
 
 function createStyles(theme: Theme) {
 	const { colors } = theme;
