@@ -742,20 +742,20 @@ func TestReadFileUsesRangeAndReportsTruncation(t *testing.T) {
 		if r.Method != http.MethodGet || r.URL.Path != "/api/fs/read/a.txt" {
 			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
 		}
-		if got := r.Header.Get("Range"); got != "bytes=0-3" {
+		if got := r.Header.Get("Range"); got != "bytes=2-5" {
 			t.Errorf("range = %q", got)
 		}
 		if got := r.URL.Query().Get("location[directory]"); got != "/work" {
 			t.Errorf("directory = %q", got)
 		}
-		w.Header().Set("Content-Range", "bytes 0-3/10")
+		w.Header().Set("Content-Range", "bytes 2-5/10")
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusPartialContent)
 		_, _ = w.Write([]byte("abcd"))
 	}))
 	defer srv.Close()
 
-	got, err := New(srv.URL, srv.Client()).ReadFile(context.Background(), "/work", "a.txt", 4)
+	got, err := New(srv.URL, srv.Client()).ReadFile(context.Background(), "/work", "a.txt", 2, 4)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -767,13 +767,43 @@ func TestReadFileUsesRangeAndReportsTruncation(t *testing.T) {
 	}
 }
 
+func TestReadFileRejectsServerIgnoringRange(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "10")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("abcdefghij"))
+	}))
+	defer srv.Close()
+
+	if _, err := New(srv.URL, srv.Client()).ReadFile(context.Background(), "/work", "a.txt", 2, 4); err == nil {
+		t.Fatal("expected error when server ignores the range request")
+	}
+}
+
+func TestReadFilePartialWithoutContentRange(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write([]byte("abcd"))
+	}))
+	defer srv.Close()
+
+	got, err := New(srv.URL, srv.Client()).ReadFile(context.Background(), "/work", "a.txt", 0, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 没有 Content-Range 时只能按“是否读满一块”判断还有没有下一块。
+	if !got.Truncated {
+		t.Fatalf("content = %#v, want truncated", got)
+	}
+}
+
 func TestReadFileRejectsErrorStatus(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing", http.StatusNotFound)
 	}))
 	defer srv.Close()
 
-	if _, err := New(srv.URL, srv.Client()).ReadFile(context.Background(), "/work", "a.txt", 4); err == nil {
+	if _, err := New(srv.URL, srv.Client()).ReadFile(context.Background(), "/work", "a.txt", 0, 4); err == nil {
 		t.Fatal("expected error")
 	}
 }

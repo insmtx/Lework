@@ -56,7 +56,7 @@ type OpenCodeAPI interface {
 	SessionDiff(ctx context.Context, sessionID, from, to string, context int) ([]opencode.FileDiff, error)
 	Interrupt(ctx context.Context, sessionID string, resume bool) (opencode.InterruptResult, error)
 	ListFiles(ctx context.Context, directory, path string) ([]opencode.FileInfo, error)
-	ReadFile(ctx context.Context, directory, path string, maxBytes int64) (opencode.FileContent, error)
+	ReadFile(ctx context.Context, directory, path string, offset, maxBytes int64) (opencode.FileContent, error)
 
 	CreatePersistentTerminal(ctx context.Context, sessionID string, req opencode.CreateTerminalRequest) (opencode.PersistentTerminal, error)
 	ConnectPersistentTerminal(ctx context.Context, ptyID string) (*opencode.TerminalConn, error)
@@ -182,11 +182,13 @@ type FileListParams struct {
 }
 
 // FileReadParams are the parameters for file.read. MaxBytes is capped by the
-// handler; callers cannot request an unbounded file body.
+// handler; callers cannot request an unbounded file body. Offset lets the
+// control plane stream large files in chunks.
 type FileReadParams struct {
 	Directory string `json:"directory"`
 	Path      string `json:"path"`
 	MaxBytes  int64  `json:"max_bytes,omitempty"`
+	Offset    int64  `json:"offset,omitempty"`
 }
 
 // ProjectCreateParams are the parameters for project.create. Name is a single
@@ -637,6 +639,9 @@ func (h *Handler) readFile(ctx context.Context, params json.RawMessage) (any, er
 	if strings.TrimSpace(p.Path) == "" {
 		return nil, errors.New("file.read: path is required")
 	}
+	if p.Offset < 0 {
+		return nil, errors.New("file.read: offset must not be negative")
+	}
 
 	root, err := filepath.Abs(p.Directory)
 	if err != nil {
@@ -651,13 +656,13 @@ func (h *Handler) readFile(ctx context.Context, params json.RawMessage) (any, er
 		return nil, fmt.Errorf("file.read: resolve relative path: %w", err)
 	}
 
-	const maxFileBytes = 512 << 10
+	const maxFileBytes = 1 << 20
 	maxBytes := p.MaxBytes
 	if maxBytes <= 0 || maxBytes > maxFileBytes {
 		maxBytes = maxFileBytes
 	}
 
-	content, err := h.opencode.ReadFile(ctx, root, filepath.ToSlash(rel), maxBytes)
+	content, err := h.opencode.ReadFile(ctx, root, filepath.ToSlash(rel), p.Offset, maxBytes)
 	if err != nil {
 		return nil, err
 	}

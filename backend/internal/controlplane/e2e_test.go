@@ -347,7 +347,7 @@ func (c *countingOpenCode) ListFiles(context.Context, string, string) ([]opencod
 }
 
 // ReadFile 返回空内容。
-func (c *countingOpenCode) ReadFile(context.Context, string, string, int64) (opencode.FileContent, error) {
+func (c *countingOpenCode) ReadFile(context.Context, string, string, int64, int64) (opencode.FileContent, error) {
 	return opencode.FileContent{}, nil
 }
 
