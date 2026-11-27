@@ -31,6 +31,7 @@ import {
 	type TaskSelection,
 } from "../src/projects/model";
 import { isNearBottom } from "../src/session/scroll";
+import { nextRecentLimit, recentProjectOptions } from "../src/sessions/select";
 import type { Theme } from "../src/theme/theme";
 import { useTheme, useThemedStyles } from "../src/theme/use-theme";
 import { useAppShell, useScreenTitle } from "../src/ui/app-shell-context";
@@ -51,6 +52,8 @@ const INBOX_OPTION_KEY = "__inbox__";
 // 新建项目入口与「待建项目」的选项键。
 const NEW_PROJECT_OPTION_KEY = "__new_project__";
 const PENDING_PROJECT_OPTION_KEY = "__pending_project__";
+// 筛选弹层里「全部项目」的选项键；用前缀避免和真实项目聚合键冲突。
+const ALL_PROJECTS_OPTION_KEY = "__all_projects__";
 
 /**
  * 首页只做一件事：直接说任务。
@@ -82,6 +85,8 @@ export default function HomeScreen() {
 	// 首页最近会话的露出条数，每次上滑加一页；手势内只加载一次。
 	const [recentLimit, setRecentLimit] = useState(HOME_RECENT_PAGE);
 	const moreLoadedInGesture = useRef(false);
+	const [recentFilterOpen, setRecentFilterOpen] = useState(false);
+	const [recentFilterKey, setRecentFilterKey] = useState<string | null>(null);
 	// 显式选择只在本次停留有效，不写偏好；失效时由解析函数自动回退。
 	const [selection, setSelection] = useState<TaskSelection | null>(null);
 	const [nodeSheetOpen, setNodeSheetOpen] = useState(false);
@@ -136,12 +141,46 @@ export default function HomeScreen() {
 				return {
 					key: `${ref.nodeID}:${ref.session.id}`,
 					ref,
+					projectKey: project ? project.key : null,
 					projectName: project ? projectDisplayName(project) : "",
 				};
 			}),
 		[recentSessions, projects.projects],
 	);
-	const visibleRecentRows = recentRows.slice(0, recentLimit);
+	const recentProjectItems = useMemo<OptionSheetItem[]>(() => {
+		const options = recentProjectOptions(recentRows);
+		// 选中项目已不在最近会话里时自动回到「全部」，避免卡在空列表。
+		const activeKey =
+			recentFilterKey && options.some((item) => item.key === recentFilterKey)
+				? recentFilterKey
+				: null;
+		return [
+			{ key: ALL_PROJECTS_OPTION_KEY, label: "全部项目", selected: activeKey === null },
+			...options.map((item) => ({
+				key: item.key,
+				label: item.label,
+				selected: item.key === activeKey,
+			})),
+		];
+	}, [recentRows, recentFilterKey]);
+	const activeFilterKey = useMemo(() => {
+		const selected = recentProjectItems.find(
+			(item) => item.selected && item.key !== ALL_PROJECTS_OPTION_KEY,
+		);
+		return selected ? selected.key : null;
+	}, [recentProjectItems]);
+	const filteredRecentRows = useMemo(
+		() =>
+			activeFilterKey
+				? recentRows.filter((row) => row.projectKey === activeFilterKey)
+				: recentRows,
+		[recentRows, activeFilterKey],
+	);
+	const visibleRecentRows = filteredRecentRows.slice(0, recentLimit);
+	// 换筛选条件后回到第一页，避免沿用上一个项目的露出条数。
+	useEffect(() => {
+		setRecentLimit(HOME_RECENT_PAGE);
+	}, [activeFilterKey]);
 
 	const canPickTarget = !settingsLoading && Boolean(settings?.sessionToken);
 	const createRoot = activeNode?.workspace_roots?.[0] ?? "";
@@ -392,7 +431,9 @@ export default function HomeScreen() {
 						});
 						if (!nearBottom) return;
 						moreLoadedInGesture.current = true;
-						setRecentLimit((limit) => Math.min(limit + HOME_RECENT_PAGE, recentRows.length));
+						setRecentLimit((limit) =>
+							nextRecentLimit(limit, filteredRecentRows.length, HOME_RECENT_PAGE),
+						);
 					}}
 				>
 					<View style={styles.card}>
@@ -442,18 +483,33 @@ export default function HomeScreen() {
 
 					{recentRows.length > 0 ? (
 						<View style={styles.recent}>
-							<Text style={styles.recentTitle}>最近会话</Text>
-							{visibleRecentRows.map(({ key, ref, projectName }) => (
-								<SessionRow
-									key={key}
-									nodeID={ref.nodeID}
-									session={ref.session}
-									nodeName={nodeNameByID[ref.nodeID]}
-									nodeColor={nodeColorByID[ref.nodeID]}
-									projectName={projectName}
-									state={sessionState(ref.nodeID, ref.session.id)}
-								/>
-							))}
+							<View style={styles.recentHeader}>
+								<Text style={styles.recentTitle}>最近会话</Text>
+								<Pressable
+									style={styles.recentFilter}
+									onPress={() => setRecentFilterOpen(true)}
+								>
+									<Text style={styles.recentFilterText} numberOfLines={1}>
+										{recentProjectItems.find((item) => item.selected)?.label ?? "全部项目"}
+									</Text>
+									<Text style={styles.recentFilterCaret}>▾</Text>
+								</Pressable>
+							</View>
+							{visibleRecentRows.length > 0 ? (
+								visibleRecentRows.map(({ key, ref, projectName }) => (
+									<SessionRow
+										key={key}
+										nodeID={ref.nodeID}
+										session={ref.session}
+										nodeName={nodeNameByID[ref.nodeID]}
+										nodeColor={nodeColorByID[ref.nodeID]}
+										projectName={projectName}
+										state={sessionState(ref.nodeID, ref.session.id)}
+									/>
+								))
+							) : (
+								<Text style={styles.recentEmpty}>该项目暂无最近会话</Text>
+							)}
 						</View>
 					) : null}
 
@@ -482,6 +538,16 @@ export default function HomeScreen() {
 				emptyText="这台电脑上还没有目录，先选「我的目录」。"
 				onSelect={pickProject}
 				onClose={() => setProjectSheetOpen(false)}
+			/>
+			<OptionSheet
+				visible={recentFilterOpen}
+				title="按项目筛选"
+				items={recentProjectItems}
+				onSelect={(key) => {
+					setRecentFilterOpen(false);
+					setRecentFilterKey(key === ALL_PROJECTS_OPTION_KEY ? null : key);
+				}}
+				onClose={() => setRecentFilterOpen(false)}
 			/>
 
 			<Modal transparent visible={createOpen} animationType="fade" onRequestClose={closeCreate}>
@@ -568,6 +634,23 @@ function createStyles(theme: Theme) {
 		},
 		reason: { flex: 1, fontSize: 12, color: colors.textMuted },
 		recent: { width: "100%", marginTop: 20, gap: 2 },
+		recentHeader: {
+			flexDirection: "row",
+			alignItems: "center",
+			justifyContent: "space-between",
+			paddingHorizontal: 4,
+		},
+		recentFilter: {
+			flexDirection: "row",
+			alignItems: "center",
+			gap: 2,
+			paddingVertical: 2,
+			flexShrink: 1,
+			maxWidth: 220,
+		},
+		recentFilterText: { flexShrink: 1, fontSize: 12, color: colors.accent },
+		recentFilterCaret: { fontSize: 10, color: colors.accent },
+		recentEmpty: { fontSize: 12, color: colors.textMuted, paddingHorizontal: 4, paddingVertical: 8 },
 		recentTitle: {
 			fontSize: 12,
 			fontWeight: "600",
