@@ -24,6 +24,7 @@ export function ToolCallCard({
 	isLast,
 	nodeID,
 	sessionID,
+	directory,
 }: {
 	part: ContentPart;
 	defaultExpanded: boolean;
@@ -32,6 +33,8 @@ export function ToolCallCard({
 	nodeID: string;
 	/** 所属会话 id：子代理全屏页据此查它创建的子会话。 */
 	sessionID: string;
+	/** 会话工作目录：子代理消息里的相对文件链接按它解析。 */
+	directory: string;
 }) {
 	const theme = useTheme();
 	const styles = useToolStyles();
@@ -103,7 +106,9 @@ export function ToolCallCard({
 					<Text style={[styles.status, running && styles.statusRunning, { color: toneColor }]}>
 						{view.status}
 					</Text>
-					{running ? <BrandSpinner size={14} color={theme.colors.accent} style={styles.spinner} /> : null}
+					{running ? (
+						<BrandSpinner size={14} color={theme.colors.accent} style={styles.spinner} />
+					) : null}
 				</Pressable>
 
 				{(detail || !expanded) && view.summary !== "" ? (
@@ -131,6 +136,7 @@ export function ToolCallCard({
 					raw={view.raw}
 					nodeID={nodeID}
 					sessionID={sessionID}
+					directory={directory}
 					onClose={() => setSheetOpen(false)}
 				/>
 			) : null}
