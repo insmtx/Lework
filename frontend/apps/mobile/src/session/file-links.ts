@@ -43,7 +43,11 @@ export function resolveFileLink(href: string, sessionDirectory: string): FileLin
 	}
 
 	if (/^file:/i.test(link)) {
-		link = link.slice("file:".length).replace(/^\/\//, "");
+		link = link.slice("file:".length);
+		const withoutSlashes = link.replace(/^\/+/, "");
+		// file:///C:/x 是 Windows 绝对路径，去掉协议带来的全部前导斜杠；
+		// POSIX 的 file:///repo/x 只去掉 //，保留根斜杠。
+		link = WINDOWS_ABSOLUTE.test(withoutSlashes) ? withoutSlashes : link.replace(/^\/\//, "");
 	} else if (link.startsWith("//")) {
 		// 协议相对 URL（//cdn.example.com/x.png）是外链，不是 UNC 路径。
 		return null;

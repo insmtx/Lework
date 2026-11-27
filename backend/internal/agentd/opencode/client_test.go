@@ -791,9 +791,13 @@ func TestReadFilePartialWithoutContentRange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 没有 Content-Range 时只能按“是否读满一块”判断还有没有下一块。
+	// 没有 Content-Range 时只能按“是否读满一块”判断还有没有下一块；
+	// 总大小未知必须报 0，不能把块长当成文件总长。
 	if !got.Truncated {
 		t.Fatalf("content = %#v, want truncated", got)
+	}
+	if got.Size != 0 {
+		t.Fatalf("size = %d, want 0 when total is unknown", got.Size)
 	}
 }
 

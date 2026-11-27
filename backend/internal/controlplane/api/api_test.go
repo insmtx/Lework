@@ -1566,6 +1566,17 @@ func TestAPIFileContentAcceptsWindowsDirectory(t *testing.T) {
 	if params.Directory != `C:\repo` {
 		t.Fatalf("directory = %q", params.Directory)
 	}
+
+	// Windows UNC 路径同样要能到达节点。
+	got = replyOK(t, agent, conn, `{"path":"a.txt","encoding":"utf-8","content":"hi","size":2,"truncated":false}`)
+	unc := `\\box\share\repo`
+	target = "/api/nodes/" + rec.ID + "/files/content?directory=" + url.QueryEscape(unc) + "&path=a.txt"
+	httpRec = env.do(http.MethodGet, target, "")
+	requireStatus(t, httpRec, http.StatusOK)
+	params = decodeParamsInto[fileReadParams](t, waitFrame(t, got))
+	if params.Directory != unc {
+		t.Fatalf("directory = %q, want %q", params.Directory, unc)
+	}
 }
 
 func TestAPIPTYCreateAndClose(t *testing.T) {
