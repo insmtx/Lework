@@ -52,6 +52,10 @@ export function workspacePath(key: string): string {
 	return `${consoleRoutes.workspaces}/${encodeURIComponent(key)}`;
 }
 
+export function workspaceFilesPath(key: string): string {
+	return `${workspacePath(key)}/files`;
+}
+
 export function consoleSessionPath(nodeID: string, sessionID: string): string {
 	return `${consoleRoutes.workspacesConsole}?node=${encodeURIComponent(nodeID)}&session=${encodeURIComponent(sessionID)}`;
 }
