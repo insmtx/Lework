@@ -40,6 +40,9 @@ vi.mock("@lework/control-ui", async (importOriginal) => {
 			<div>{`automation:${publicId}`}</div>
 		),
 		WorkspacesView: () => <div>workspaces</div>,
+		ProjectFilesView: ({ projectKey }: { projectKey: string }) => (
+			<div>{`workspace-files:${projectKey}`}</div>
+		),
 		WorkspaceConsole: ({
 			projectKey,
 			initialSessionID,
@@ -111,6 +114,7 @@ describe("desktop routes", () => {
 		expect(await renderAt("/automation")).toContain("automation");
 		expect(await renderAt("/automation/a1")).toContain("automation:a1");
 		expect(await renderAt("/workspaces")).toContain("workspaces");
+		expect(await renderAt("/workspaces/p1/files")).toContain("workspace-files:p1");
 		expect(await renderAt("/nodes")).toContain("nodes");
 		expect(await renderAt("/pending")).toContain("pending");
 		expect(await renderAt("/settings")).toContain("settings");

@@ -10,6 +10,7 @@ export { ControlAuthGate } from "./components/control-auth-gate";
 export { ConsoleShell } from "./console-app/console-shell";
 export { NodesView } from "./console-app/control-plane/nodes-view";
 export { PendingView } from "./console-app/control-plane/pending-view";
+export { ProjectFilesView } from "./console-app/control-plane/project-files-view";
 export { WorkspaceConsole } from "./console-app/control-plane/workspace-console";
 export { WorkspacesView } from "./console-app/control-plane/workspaces-view";
 export { createConsoleNavigation } from "./console-app/navigation";

@@ -6,7 +6,7 @@ import { useControlApi } from "../../context";
 import { Badge } from "@lework/ui/components/ui/badge";
 import { Button } from "@lework/ui/components/ui/button";
 import { cn } from "@lework/ui/lib/utils";
-import { CloudOff, FolderGit2, Loader2, RefreshCw, Server } from "lucide-react";
+import { CloudOff, FolderGit2, FolderTree, Loader2, RefreshCw, Server } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 function baseName(path: string): string {
@@ -32,9 +32,11 @@ function nodeName(nodes: NodeView[], nodeID: string): string {
 export function WorkspacesView({
 	onOpenWorkspace,
 	onOpenNodes,
+	onBrowseWorkspace,
 }: {
 	onOpenWorkspace: (key: string) => void;
 	onOpenNodes: () => void;
+	onBrowseWorkspace?: (key: string) => void;
 }) {
 	const { client } = useControlApi();
 	const [projects, setProjects] = useState<ProjectSummary[]>([]);
@@ -213,6 +215,17 @@ export function WorkspacesView({
 												</option>
 											))}
 										</select>
+										{onBrowseWorkspace ? (
+											<Button
+												variant="outline"
+												size="sm"
+												className="gap-1.5"
+												disabled={onlineNodes.length === 0}
+												onClick={() => onBrowseWorkspace(project.key)}
+											>
+												<FolderTree className="size-3.5" /> 文件
+											</Button>
+										) : null}
 										<Button
 											size="sm"
 											onClick={() => onOpenWorkspace(project.key)}
