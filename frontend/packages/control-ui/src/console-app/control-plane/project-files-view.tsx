@@ -4,7 +4,7 @@ import { Button } from "@lework/ui/components/ui/button";
 import { useIsMobile } from "@lework/ui/hooks/use-mobile";
 import { cn } from "@lework/ui/lib/utils";
 import { ChevronLeft, ChevronRight, FileText, Folder, Loader2, RefreshCw } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cleanName, isSafeRelative, joinPath } from "../../components/file-paths";
 import { FilePreview } from "../../components/file-preview";
 import { useControlApi } from "../../context";
@@ -52,6 +52,8 @@ export function ProjectFilesView({
 	const [selected, setSelected] = useState<FileReadResult | null>(null);
 	const [fileLoading, setFileLoading] = useState(false);
 	const [fileError, setFileError] = useState<string | null>(null);
+	// 节点切换或刷新后，旧请求的结果必须丢弃，避免把上一个节点的文件显示在新节点下。
+	const generation = useRef(0);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -91,19 +93,24 @@ export function ProjectFilesView({
 	const loadDir = useCallback(
 		async (dir: string) => {
 			if (!selectedNodeID || !canonical) return;
+			const request = generation.current;
 			setPendingDirs((prev) => ({ ...prev, [dir]: true }));
 			try {
 				const entries = await client.listFiles(selectedNodeID, canonical, dir);
+				if (request !== generation.current) return;
 				setDirError(null);
 				setCache((prev) => ({ ...prev, [dir]: entries }));
 			} catch (caught) {
+				if (request !== generation.current) return;
 				setDirError(caught instanceof Error ? caught.message : "无法读取目录");
 			} finally {
-				setPendingDirs((prev) => {
-					const next = { ...prev };
-					delete next[dir];
-					return next;
-				});
+				if (request === generation.current) {
+					setPendingDirs((prev) => {
+						const next = { ...prev };
+						delete next[dir];
+						return next;
+					});
+				}
 			}
 		},
 		[canonical, client, selectedNodeID],
@@ -111,15 +118,22 @@ export function ProjectFilesView({
 
 	useEffect(() => {
 		if (!canBrowse) return;
+		generation.current += 1;
 		setCache({});
 		setExpanded({});
+		setPendingDirs({});
 		setSelected(null);
+		setFileLoading(false);
 		setFileError(null);
 		setDirError(null);
 		void loadDir("");
 	}, [canBrowse, loadDir]);
 
 	const toggleDir = (dir: string) => {
+		if (!isSafeRelative(dir)) {
+			setDirError("文件路径超出了工作区范围。");
+			return;
+		}
 		if (expanded[dir]) {
 			setExpanded((prev) => {
 				const next = { ...prev };
@@ -134,21 +148,27 @@ export function ProjectFilesView({
 
 	const openFile = async (path: string) => {
 		if (!selectedNodeID || !canonical || !isSafeRelative(path)) return;
+		const request = generation.current;
 		setFileLoading(true);
 		setFileError(null);
 		try {
-			setSelected(await client.readFile(selectedNodeID, canonical, path));
+			const file = await client.readFile(selectedNodeID, canonical, path);
+			if (request === generation.current) setSelected(file);
 		} catch (caught) {
+			if (request !== generation.current) return;
 			setFileError(caught instanceof Error ? caught.message : "无法读取文件");
 		} finally {
-			setFileLoading(false);
+			if (request === generation.current) setFileLoading(false);
 		}
 	};
 
 	const reload = () => {
+		generation.current += 1;
 		setCache({});
 		setExpanded({});
+		setPendingDirs({});
 		setSelected(null);
+		setFileLoading(false);
 		setFileError(null);
 		setDirError(null);
 		void loadDir("");
@@ -247,8 +267,10 @@ export function ProjectFilesView({
 	const displayName = project
 		? project.alias?.trim() || baseName(project.canonical) || project.id
 		: "";
+	const crumbSource = selected?.path ?? "";
+	const crumbs = crumbSource.split("/").filter(Boolean);
 	const showPreviewOnly = isMobile && selected !== null;
-	const showListOnly = isMobile && selected === null;
+	const showListOnly = isMobile && selected === null && !fileLoading && !fileError;
 
 	return (
 		<div className="flex h-full min-h-0 flex-col bg-[var(--lework-app-bg)]">
@@ -257,9 +279,25 @@ export function ProjectFilesView({
 					<ChevronLeft className="size-4" /> 返回工作区
 				</Button>
 				<div className="min-w-0 flex-1">
-					<p className="truncate text-sm font-semibold text-[var(--lework-text-strong)]">
-						{displayName}
-					</p>
+					<nav aria-label="面包屑" className="flex min-w-0 items-center gap-1">
+						<span className="truncate text-sm font-semibold text-[var(--lework-text-strong)]">
+							{displayName}
+						</span>
+						{crumbs.map((segment, index) => (
+							<span
+								// 面包屑只是展示路径；同名目录用下标区分。
+								key={`${segment}-${index}`}
+								className="flex min-w-0 items-center gap-1 text-[11px]"
+							>
+								<span aria-hidden className="text-[var(--lework-text-subtle)]">
+									/
+								</span>
+								<span className="truncate font-mono text-[var(--lework-text-muted)]">
+									{segment}
+								</span>
+							</span>
+						))}
+					</nav>
 					<code className="block truncate text-[11px] text-[var(--lework-text-muted)]">
 						{canonical}
 					</code>

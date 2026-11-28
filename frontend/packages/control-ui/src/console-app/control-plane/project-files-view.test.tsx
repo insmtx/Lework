@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ProjectFilesView } from "./project-files-view";
 
@@ -125,5 +125,78 @@ describe("ProjectFilesView", () => {
 
 		expect(await screen.findByText("没有在线节点，无法浏览文件。")).toBeTruthy();
 		expect(mockClient.listFiles).not.toHaveBeenCalled();
+	});
+
+	it("never requests a directory outside the workspace", async () => {
+		mockClient.listFiles.mockImplementation((_node: string, _dir: string, path: string) =>
+			Promise.resolve(path === "" ? [{ path: "../evil/", type: "directory" }] : []),
+		);
+
+		render(<ProjectFilesView projectKey="proj-1" onBack={vi.fn()} />);
+
+		fireEvent.click(await screen.findByText("../evil"));
+		await waitFor(() => expect(mockClient.listFiles).toHaveBeenCalledTimes(1));
+		expect(mockClient.listFiles).not.toHaveBeenCalledWith("node-1", "/work/demo", "../evil");
+	});
+
+	it("ignores a directory result from the previous node", async () => {
+		let resolveOld: (entries: { path: string; type: string }[]) => void = () => undefined;
+		mockClient.listFiles.mockImplementation((node: string, _dir: string, path: string) => {
+			if (node === "node-1" && path === "src") {
+				return new Promise((resolve) => {
+					resolveOld = resolve;
+				});
+			}
+			return Promise.resolve(
+				node === "node-1"
+					? [{ path: "src/", type: "directory" }]
+					: [{ path: "src/", type: "directory" }],
+			);
+		});
+
+		render(<ProjectFilesView projectKey="proj-1" onBack={vi.fn()} />);
+
+		fireEvent.click(await screen.findByText("src"));
+		fireEvent.change(screen.getByLabelText("选择节点"), { target: { value: "node-2" } });
+		fireEvent.click(await screen.findByText("src"));
+
+		await waitFor(() =>
+			expect(mockClient.listFiles).toHaveBeenCalledWith("node-2", "/srv/demo", "src"),
+		);
+
+		await act(async () => {
+			resolveOld([{ path: "app.tsx", type: "file" }]);
+		});
+
+		expect(screen.queryByText("app.tsx")).toBeNull();
+	});
+
+	it("shows a file read failure on mobile", async () => {
+		const innerWidth = window.innerWidth;
+		window.innerWidth = 500;
+		mockClient.readFile.mockRejectedValue(new Error("permission denied"));
+
+		try {
+			render(<ProjectFilesView projectKey="proj-1" onBack={vi.fn()} />);
+
+			fireEvent.click(await screen.findByText("src"));
+			fireEvent.click(await screen.findByText("app.tsx"));
+
+			expect(await screen.findByText("permission denied")).toBeTruthy();
+		} finally {
+			window.innerWidth = innerWidth;
+		}
+	});
+
+	it("shows a breadcrumb for the open file", async () => {
+		render(<ProjectFilesView projectKey="proj-1" onBack={vi.fn()} />);
+
+		fireEvent.click(await screen.findByText("src"));
+		fireEvent.click(await screen.findByText("app.tsx"));
+
+		const crumbs = await screen.findByRole("navigation", { name: "面包屑" });
+		expect(crumbs.textContent).toContain("demo");
+		expect(crumbs.textContent).toContain("src");
+		expect(crumbs.textContent).toContain("app.tsx");
 	});
 });
