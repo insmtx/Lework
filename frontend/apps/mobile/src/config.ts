@@ -13,6 +13,11 @@ export function projectRoute(key: string): string {
 	return `/projects/${encodeURIComponent(key)}`;
 }
 
+// filesRoute 返回项目文件页路径；key 里的 ":" 与 "/" 同样要整体编码。
+export function filesRoute(key: string): string {
+	return `/files/${encodeURIComponent(key)}`;
+}
+
 // fileRoute 返回文件预览页路径；directory / path 走 query，避免斜杠被当成
 // 路由层级（expo-router 会自动解码 query）。
 export function fileRoute(nodeID: string, directory: string, path: string): string {
