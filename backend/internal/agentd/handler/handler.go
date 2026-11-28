@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -189,6 +190,26 @@ type FileReadParams struct {
 	Path      string `json:"path"`
 	MaxBytes  int64  `json:"max_bytes,omitempty"`
 	Offset    int64  `json:"offset,omitempty"`
+}
+
+// maxFileWriteChunkBytes 限制单次 file.write 的解码后大小：base64 后仍要
+// 落在 8 MiB 协议帧以内，控制面按更小的块发送。
+const maxFileWriteChunkBytes = 1 << 20
+
+// FileWriteParams are the parameters for file.write. Path is a single file
+// name in the directory root; attachments always land in the project root.
+type FileWriteParams struct {
+	Directory string `json:"directory"`
+	Path      string `json:"path"`
+	Offset    int64  `json:"offset"`
+	Data      string `json:"data"`
+}
+
+// FileWriteResult reports the final name (renamed on collision) and the file
+// length written so far, so later chunks reuse the same path.
+type FileWriteResult struct {
+	Path string `json:"path"`
+	Size int64  `json:"size"`
 }
 
 // ProjectCreateParams are the parameters for project.create. Name is a single
@@ -445,6 +466,8 @@ func (h *Handler) Handle(ctx context.Context, method string, params json.RawMess
 		return h.listFiles(ctx, params)
 	case "file.read":
 		return h.readFile(ctx, params)
+	case "file.write":
+		return h.writeFile(ctx, params)
 
 	case "pty.create":
 		return h.createPTY(ctx, params)
@@ -686,6 +709,118 @@ func (h *Handler) readFile(ctx context.Context, params json.RawMessage) (any, er
 		Size:      content.Size,
 		Truncated: content.Truncated,
 	}, nil
+}
+
+// writeFile writes one chunk at offset. The first chunk creates the file and
+// resolves a name collision instead of overwriting an existing project file.
+func (h *Handler) writeFile(ctx context.Context, params json.RawMessage) (any, error) {
+	var p FileWriteParams
+	if err := decodeParams("file.write", params, &p); err != nil {
+		return nil, err
+	}
+	if p.Directory == "" {
+		return nil, errors.New("file.write: directory is required")
+	}
+	if err := h.confineDirectory(ctx, p.Directory); err != nil {
+		return nil, err
+	}
+	if err := validateFileName(p.Path); err != nil {
+		return nil, fmt.Errorf("file.write: %w", err)
+	}
+	if p.Offset < 0 {
+		return nil, errors.New("file.write: offset must not be negative")
+	}
+	data, err := base64.StdEncoding.DecodeString(p.Data)
+	if err != nil {
+		return nil, fmt.Errorf("file.write: decode data: %w", err)
+	}
+	if len(data) > maxFileWriteChunkBytes {
+		return nil, fmt.Errorf("file.write: chunk exceeds %d bytes", maxFileWriteChunkBytes)
+	}
+	root, err := filepath.Abs(p.Directory)
+	if err != nil {
+		return nil, fmt.Errorf("file.write: resolve directory: %w", err)
+	}
+
+	if p.Offset == 0 {
+		f, name, err := createFileNoClobber(root, p.Path)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := f.Write(data); err != nil {
+			_ = f.Close()
+			return nil, fmt.Errorf("file.write: write %s: %w", name, err)
+		}
+		if err := f.Truncate(int64(len(data))); err != nil {
+			_ = f.Close()
+			return nil, fmt.Errorf("file.write: truncate %s: %w", name, err)
+		}
+		if err := f.Close(); err != nil {
+			return nil, fmt.Errorf("file.write: close %s: %w", name, err)
+		}
+		return FileWriteResult{Path: name, Size: int64(len(data))}, nil
+	}
+
+	target := filepath.Join(root, p.Path)
+	info, err := os.Lstat(target)
+	if err != nil {
+		return nil, fmt.Errorf("file.write: %w", err)
+	}
+	// 追加块只写已由首块创建的文件；目标被换成符号链接时拒绝，避免写到工作区外。
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, errors.New("file.write: refusing to write through a symlink")
+	}
+	f, err := os.OpenFile(target, os.O_WRONLY, 0)
+	if err != nil {
+		return nil, fmt.Errorf("file.write: open %s: %w", p.Path, err)
+	}
+	defer f.Close()
+	if _, err := f.Seek(p.Offset, io.SeekStart); err != nil {
+		return nil, fmt.Errorf("file.write: seek %s: %w", p.Path, err)
+	}
+	if _, err := f.Write(data); err != nil {
+		return nil, fmt.Errorf("file.write: write %s: %w", p.Path, err)
+	}
+	// 重传更长的旧文件时截掉尾部，文件长度始终等于已发送的字节数。
+	if err := f.Truncate(p.Offset + int64(len(data))); err != nil {
+		return nil, fmt.Errorf("file.write: truncate %s: %w", p.Path, err)
+	}
+	return FileWriteResult{Path: filepath.ToSlash(p.Path), Size: p.Offset + int64(len(data))}, nil
+}
+
+// validateFileName keeps uploads in the directory root: a single segment means
+// the parent is always the confined directory, never a symlinked subdirectory.
+func validateFileName(name string) error {
+	if name == "" {
+		return errors.New("path is required")
+	}
+	if name == "." || name == ".." {
+		return errors.New("path must be a file name")
+	}
+	if strings.ContainsAny(name, "/\\\x00") || filepath.Base(name) != name {
+		return errors.New("path must not contain separators")
+	}
+	return nil
+}
+
+// createFileNoClobber creates name or the first free "stem (n)ext" variant.
+func createFileNoClobber(root, name string) (*os.File, string, error) {
+	ext := filepath.Ext(name)
+	stem := strings.TrimSuffix(name, ext)
+	for n := 0; n < 100; n++ {
+		candidate := name
+		if n > 0 {
+			candidate = fmt.Sprintf("%s (%d)%s", stem, n, ext)
+		}
+		f, err := os.OpenFile(filepath.Join(root, candidate), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+		if err == nil {
+			return f, filepath.ToSlash(candidate), nil
+		}
+		if !os.IsExist(err) {
+			return nil, "", fmt.Errorf("file.write: create %s: %w", candidate, err)
+		}
+	}
+	return nil, "", errors.New("file.write: too many files with the same name")
 }
 
 // trimPartialRune 去掉末尾不完整的 UTF-8 字符，最多 4 个字节。

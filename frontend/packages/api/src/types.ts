@@ -124,6 +124,12 @@ export interface FileReadResult {
 	truncated: boolean;
 }
 
+/** UploadedFile 是节点写入后返回的最终相对路径（同名冲突时可能被改写）。 */
+export interface UploadedFile {
+	path: string;
+	size: number;
+}
+
 export interface TerminalSize {
 	cols: number;
 	rows: number;

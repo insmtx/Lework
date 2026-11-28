@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import type { PickedAttachment } from "../composer/attachments";
 import { keyboardOverlap } from "../composer/keyboard";
 import type { Theme } from "../theme/theme";
 import { useTheme, useThemedStyles } from "../theme/use-theme";
@@ -34,6 +35,10 @@ export interface GlobalComposerProps {
 	onChangeText: (text: string) => void;
 	onSend: () => Promise<void>;
 	sending: boolean;
+	/** 待上传附件；发送成功前一直保留，失败时不清空。 */
+	attachments: PickedAttachment[];
+	onPickAttachments: () => void;
+	onRemoveAttachment: (index: number) => void;
 	/** 非会话页可切项目/节点；会话页不传，目标只读。 */
 	onPickTarget?: () => void;
 	/** 会话页标题已经写明了对象，再显示 chip 就是重复信息。 */
@@ -51,7 +56,8 @@ export function GlobalComposer(props: GlobalComposerProps) {
 	const theme = useTheme();
 	const styles = useThemedStyles(createStyles);
 	const disabled = props.target === null;
-	const canSend = !disabled && !props.sending && props.value.trim() !== "";
+	const canSend =
+		!disabled && !props.sending && (props.value.trim() !== "" || props.attachments.length > 0);
 	const baseBottom = Math.max(insets.bottom, 8);
 
 	// 输入法让出的额外高度。不用 KeyboardAvoidingView：它只在键盘事件到来时更新，
@@ -111,7 +117,33 @@ export function GlobalComposer(props: GlobalComposerProps) {
 					</Text>
 				</Pressable>
 			) : null}
+			{props.attachments.length > 0 ? (
+				<View style={styles.attachments}>
+					{props.attachments.map((attachment, index) => (
+						<View key={`${attachment.name}:${attachment.uri}`} style={styles.attachment}>
+							<Text style={styles.attachmentName} numberOfLines={1}>
+								{attachment.name}
+							</Text>
+							<Pressable
+								accessibilityLabel={`移除 ${attachment.name}`}
+								onPress={() => props.onRemoveAttachment(index)}
+								style={styles.attachmentRemove}
+							>
+								<Text style={styles.attachmentRemoveText}>×</Text>
+							</Pressable>
+						</View>
+					))}
+				</View>
+			) : null}
 			<View style={styles.row}>
+				<Pressable
+					disabled={disabled}
+					onPress={props.onPickAttachments}
+					style={[styles.attach, disabled && styles.sendDisabled]}
+					accessibilityLabel="添加附件"
+				>
+					<Text style={styles.attachText}>＋</Text>
+				</Pressable>
 				<TextInput
 					style={styles.input}
 					value={props.value}
@@ -155,6 +187,30 @@ function createStyles(theme: Theme) {
 		chip: { alignSelf: "flex-start", paddingVertical: 2 },
 		chipText: { fontSize: 12, color: colors.textSecondary, maxWidth: 280 },
 		row: { flexDirection: "row", alignItems: "flex-end", gap: 8 },
+		attachments: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+		attachment: {
+			flexDirection: "row",
+			alignItems: "center",
+			gap: 4,
+			maxWidth: 200,
+			borderRadius: 10,
+			paddingLeft: 8,
+			paddingRight: 2,
+			paddingVertical: 2,
+			backgroundColor: colors.surfaceMuted,
+		},
+		attachmentName: { flexShrink: 1, fontSize: 12, color: colors.textSecondary },
+		attachmentRemove: { paddingHorizontal: 4, paddingVertical: 2 },
+		attachmentRemoveText: { fontSize: 14, color: colors.textMuted },
+		attach: {
+			width: 40,
+			height: 40,
+			borderRadius: 20,
+			alignItems: "center",
+			justifyContent: "center",
+			backgroundColor: colors.surfaceMuted,
+		},
+		attachText: { fontSize: 20, lineHeight: 22, color: colors.textSecondary },
 		input: {
 			flex: 1,
 			minHeight: 40,

@@ -2,6 +2,7 @@
 
 import { useIsMobile } from "@lework/ui/hooks/use-mobile";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { sendWithAttachments } from "./attachments";
 import { NodeSidebar } from "./components/node-sidebar";
 import { SessionPanel } from "./components/session-panel";
 import { useControlApi } from "./context";
@@ -605,17 +606,22 @@ export function ControlConsole({
 		setSessionsRefresh((value) => value + 1);
 	};
 
-	const send = async (text: string) => {
+	const send = async (text: string, files: File[]) => {
 		if (!selectedNodeID || !selectedSessionID) throw new Error("No session selected");
+		const directory = selectedSession?.directory || sessionDirectory;
+		if (!directory) throw new Error("Session has no working directory");
 		setSending(true);
 		try {
-			await client.sendPrompt(
+			await sendWithAttachments(
+				client,
 				selectedNodeID,
 				selectedSessionID,
+				directory,
 				text,
 				typeof crypto !== "undefined" && crypto.randomUUID
 					? crypto.randomUUID()
 					: `${Date.now()}-${Math.random()}`,
+				files,
 			);
 			setMessagesRefresh((value) => value + 1);
 			setSessionsRefresh((value) => value + 1);

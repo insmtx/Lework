@@ -1,4 +1,5 @@
-import type { ApiClient, Session } from "@lework/api";
+import { type ApiClient, attachmentNote, type Session } from "@lework/api";
+import { type PickedAttachment, uploadAttachments } from "./attachments";
 
 /** newIdempotencyKey 每次发送生成一个键，重试时由调用方复用同一个键。 */
 export function newIdempotencyKey(nodeID: string, sessionID: string): string {
@@ -8,8 +9,8 @@ export function newIdempotencyKey(nodeID: string, sessionID: string): string {
 /**
  * sendToProject 在目标节点上新建会话并立即发送首条消息。
  *
- * 两步都成功才算发送完成：建会话成功但 prompt 失败时抛错，让调用方保留
- * 草稿。否则用户会以为消息已经发出，而服务端只有一个空会话。
+ * 附件先全部上传成功再建会话：中途失败时不会留下一个空会话，调用方也能
+ * 保留草稿与已选附件。三步都成功才算发送完成。
  */
 export async function sendToProject(
 	client: ApiClient,
@@ -17,8 +18,10 @@ export async function sendToProject(
 	directory: string,
 	text: string,
 	idempotencyKey: string,
+	files: PickedAttachment[] = [],
 ): Promise<Session> {
+	const paths = await uploadAttachments(client, nodeID, directory, files);
 	const session = await client.createSession(nodeID, directory);
-	await client.sendPrompt(nodeID, session.id, text, idempotencyKey);
+	await client.sendPrompt(nodeID, session.id, text + attachmentNote(paths), idempotencyKey);
 	return session;
 }
