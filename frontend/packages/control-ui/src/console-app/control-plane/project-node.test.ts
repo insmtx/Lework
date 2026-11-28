@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { projectNodeCanonical, resolveProjectNode } from "./project-node";
 import type { ProjectSummary } from "../../types";
+import { projectNodeCanonical, resolveProjectNode } from "./project-node";
 
 function project(overrides: Partial<ProjectSummary> = {}): ProjectSummary {
 	return {

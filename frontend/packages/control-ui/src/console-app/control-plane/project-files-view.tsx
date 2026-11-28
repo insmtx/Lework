@@ -1,15 +1,15 @@
 "use client";
 
-import { FilePreview } from "../../components/file-preview";
-import { cleanName, isSafeRelative, joinPath } from "../../components/file-paths";
-import { useControlApi } from "../../context";
-import type { FileInfo, FileReadResult, NodeView, ProjectSummary } from "../../types";
-import { projectNodeCanonical, resolveProjectNode } from "./project-node";
 import { Button } from "@lework/ui/components/ui/button";
 import { useIsMobile } from "@lework/ui/hooks/use-mobile";
 import { cn } from "@lework/ui/lib/utils";
 import { ChevronLeft, ChevronRight, FileText, Folder, Loader2, RefreshCw } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { cleanName, isSafeRelative, joinPath } from "../../components/file-paths";
+import { FilePreview } from "../../components/file-preview";
+import { useControlApi } from "../../context";
+import type { FileInfo, FileReadResult, NodeView, ProjectSummary } from "../../types";
+import { projectNodeCanonical, resolveProjectNode } from "./project-node";
 
 /** baseName 取路径最后一段，兼容 Windows 分隔符。 */
 function baseName(path: string): string {
@@ -80,7 +80,8 @@ export function ProjectFilesView({
 		};
 	}, [client, projectKey]);
 
-	const canonical = project && selectedNodeID ? projectNodeCanonical(project, selectedNodeID) : null;
+	const canonical =
+		project && selectedNodeID ? projectNodeCanonical(project, selectedNodeID) : null;
 	const selectedProjectNode = useMemo(
 		() => project?.nodes.find((node) => node.node_id === selectedNodeID) ?? null,
 		[project, selectedNodeID],

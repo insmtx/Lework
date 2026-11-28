@@ -1,6 +1,11 @@
 "use client";
 
-import { WorkspacesView, consoleRoutes, workspaceFilesPath, workspacePath } from "@lework/control-ui";
+import {
+	consoleRoutes,
+	WorkspacesView,
+	workspaceFilesPath,
+	workspacePath,
+} from "@lework/control-ui";
 import { useRouter } from "next/navigation";
 
 import { ControlPlaneProvider } from "@/components/ControlPlaneProvider";
