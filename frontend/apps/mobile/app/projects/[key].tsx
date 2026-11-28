@@ -15,6 +15,7 @@ import { createClient } from "../../src/api/client";
 import { type PickedAttachment, pickAttachments } from "../../src/composer/attachments";
 import { createSecureDraftStore } from "../../src/composer/secure-draft";
 import { newIdempotencyKey, sendToProject } from "../../src/composer/send";
+import { filesRoute } from "../../src/config";
 import {
 	projectDirectoryOnNode,
 	projectDisplayName,
@@ -222,6 +223,13 @@ export default function ProjectScreen() {
 				ListHeaderComponent={
 					<View style={styles.header}>
 						<Text style={styles.meta}>{projectDirectoryOnNode(project, nodeID ?? "")}</Text>
+						<Pressable
+							accessibilityRole="button"
+							style={styles.filesLink}
+							onPress={() => router.push(filesRoute(project.key))}
+						>
+							<Text style={styles.filesText}>浏览文件 ›</Text>
+						</Pressable>
 						<Pressable style={styles.primary} onPress={() => setPickerOpen(true)}>
 							<Text style={styles.primaryText}>主节点：{primaryLabel} ▾</Text>
 						</Pressable>
@@ -314,6 +322,8 @@ function createStyles(theme: Theme) {
 		empty: { paddingVertical: 32, alignItems: "center" },
 		title: { fontSize: 20, fontWeight: "700", color: colors.text },
 		meta: { fontSize: 12, color: colors.textSecondary },
+		filesLink: { alignSelf: "flex-start", paddingVertical: 2 },
+		filesText: { fontSize: 13, color: colors.accent },
 		hint: { color: colors.textSecondary, textAlign: "center" },
 		warn: { fontSize: 12, color: colors.warning },
 		error: { fontSize: 12, color: colors.danger },

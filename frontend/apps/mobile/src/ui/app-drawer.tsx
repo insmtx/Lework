@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { projectRoute, sessionRoute } from "../config";
+import { filesRoute, projectRoute, sessionRoute } from "../config";
 import { nodeColorSwatch } from "../nodes/colors";
 import { projectDisplayName } from "../projects/model";
 import { formatRelativeTime, RECENT_SESSION_LIMIT, type SidebarGroup } from "../sidebar/model";
@@ -31,23 +31,30 @@ function ProjectGroup({
 	stateOf,
 	onOpenProject,
 	onOpenSession,
+	onBrowseFiles,
 }: {
 	group: SidebarGroup;
 	nodeColors: Record<string, string>;
 	stateOf: (nodeID: string, sessionID: string) => SessionState | undefined;
 	onOpenProject: () => void;
 	onOpenSession: (nodeID: string, sessionID: string) => void;
+	onBrowseFiles: () => void;
 }) {
 	const styles = useThemedStyles(createStyles);
 	const { isUnread } = useAppShell();
 
 	return (
 		<View style={styles.group}>
-			<Pressable style={styles.projectRow} onPress={onOpenProject}>
-				<Text style={styles.projectName} numberOfLines={1}>
-					{projectDisplayName(group.project)}
-				</Text>
-			</Pressable>
+			<View style={styles.projectRow}>
+				<Pressable style={styles.projectOpen} onPress={onOpenProject}>
+					<Text style={styles.projectName} numberOfLines={1}>
+						{projectDisplayName(group.project)}
+					</Text>
+				</Pressable>
+				<Pressable accessibilityRole="button" hitSlop={8} onPress={onBrowseFiles}>
+					<Text style={styles.projectFiles}>文件</Text>
+				</Pressable>
+			</View>
 
 			{group.recent.map((row) => {
 				const state = stateOf(row.nodeID, row.session.id);
@@ -224,6 +231,10 @@ export function AppDrawer() {
 									nodeColors={nodeColors}
 									stateOf={sessionState}
 									onOpenProject={() => openProject(group.project.key)}
+									onBrowseFiles={() => {
+										closeDrawer();
+										router.push(filesRoute(group.project.key));
+									}}
 									onOpenSession={openSession}
 								/>
 							))
@@ -309,8 +320,17 @@ function createStyles(theme: Theme) {
 		},
 		empty: { fontSize: 13, color: colors.textMuted, paddingHorizontal: 4, paddingVertical: 10 },
 		group: { paddingBottom: 8 },
-		projectRow: { paddingHorizontal: 4, paddingTop: 8, paddingBottom: 4 },
+		projectRow: {
+			flexDirection: "row",
+			alignItems: "center",
+			gap: 8,
+			paddingHorizontal: 4,
+			paddingTop: 8,
+			paddingBottom: 4,
+		},
+		projectOpen: { flex: 1 },
 		projectName: { fontSize: 14, fontWeight: "600", color: colors.text },
+		projectFiles: { fontSize: 13, color: colors.accent },
 		sessionRow: {
 			flexDirection: "row",
 			alignItems: "center",

@@ -94,6 +94,7 @@ function RootNavigator() {
 						<Stack.Screen name="index" options={{ headerShown: false }} />
 						<Stack.Screen name="projects" options={{ title: "项目" }} />
 						<Stack.Screen name="projects/[key]" options={{ title: "项目" }} />
+						<Stack.Screen name="files/[key]" options={{ title: "文件" }} />
 						<Stack.Screen name="pending" options={{ title: "待处理" }} />
 						<Stack.Screen name="nodes" options={{ title: "我的电脑" }} />
 						<Stack.Screen name="nodes/add" options={{ title: "添加电脑" }} />
