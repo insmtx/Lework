@@ -75,9 +75,10 @@ export function AppShell({ children }: { children: ReactNode }) {
 	const sessionSettings = settings?.sessionToken ? settings : null;
 	const projects = useProjects(sessionSettings);
 
-	// 完成提醒优先走系统推送；没有登记推送时（缺 EAS 凭据的构建），靠总览流的
-	// 本地通知补一个，走的仍是 completions-v3 的完成提示音。总览流在后台
-	// 保持连接，所以只要 App 进程还活着，切到后台也能响。
+	// 完成提醒优先走系统推送，但「已登记」不等于「推送必达」：缺 FCM 凭据、
+	// 令牌被服务端清理、系统渠道被关掉都会静默丢包。因此总览流收到完成事件
+	// 时本地也发一条，与会话 ID 同名，推送可达时系统会折叠成一条。总览流在
+	// 后台保持连接，只要 App 进程还活着，切到后台也能响。
 	//
 	// Android 13+ 不授权通知就收不到任何东西，而声音默认是开启的；没人去点
 	// 推送开关时权限永远停在未授予，提醒会被系统静默丢弃。所以开机补问一次。
@@ -93,7 +94,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 	const overviewNodesRef = useRef<OverviewNode[]>([]);
 	const alertCompletion = useCallback(
 		(event: ControlEvent) => {
-			if (!preferences.soundEnabled || settings?.deviceID) return;
+			if (!preferences.soundEnabled) return;
 			const node = overviewNodesRef.current.find(
 				(candidate) => candidate.node_id === event.node_id,
 			);
@@ -105,7 +106,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 			const alert = completionAlertFrom(event);
 			if (alert) void notifyCompletion(alert);
 		},
-		[preferences.soundEnabled, settings?.deviceID],
+		[preferences.soundEnabled],
 	);
 
 	const {

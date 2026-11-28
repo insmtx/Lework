@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { Text } from "react-native";
+import { Pressable, Text } from "react-native";
 
 import { createClient } from "../../src/api/client";
 import {
 	ensureNotificationPermission,
+	notifyCompletion,
 	registerForPush,
 	unregisterPush,
 } from "../../src/push/register";
@@ -35,6 +36,7 @@ export default function NotificationsScreen() {
 
 	const [notifications, setNotifications] = useState(settings?.notifications ?? false);
 	const [busy, setBusy] = useState(false);
+	const [testing, setTesting] = useState(false);
 	const [status, setStatus] = useState<string | null>(null);
 	const [failed, setFailed] = useState(false);
 
@@ -46,6 +48,32 @@ export default function NotificationsScreen() {
 	const note = (message: string, isError = false) => {
 		setFailed(isError);
 		setStatus(message);
+	};
+
+	// 试听只走本地通知，不依赖推送登记：能响说明播放与系统权限正常，
+	// 不响则问题在通知权限或系统渠道，而不是任务触发。
+	const testSound = async () => {
+		setTesting(true);
+		setStatus(null);
+		setFailed(false);
+		try {
+			if (!(await ensureNotificationPermission())) {
+				note("系统通知权限未开启，试听提醒被系统拦下。", true);
+				return;
+			}
+			await notifyCompletion({
+				nodeID: "",
+				sessionID: "sound-test",
+				kind: "done",
+				title: "执行完成",
+				body: "这是一条试听提醒",
+			});
+			note("已发送试听提醒；没听到声音请检查系统里的「执行结果」渠道。");
+		} catch (error) {
+			note(error instanceof Error ? error.message : "发送试听提醒失败", true);
+		} finally {
+			setTesting(false);
+		}
 	};
 
 	const toggleNotifications = async (enabled: boolean) => {
@@ -118,6 +146,14 @@ export default function NotificationsScreen() {
 					两类提醒各用一个系统通知渠道，可在系统设置里分别关闭声音。后台提醒依赖 App
 					进程存活，建议把 lework 设为「不受电池限制」，否则熄屏久了可能被系统冻结。
 				</Text>
+				<Pressable
+					accessibilityRole="button"
+					disabled={testing}
+					style={[styles.button, testing && styles.buttonDisabled]}
+					onPress={() => void testSound()}
+				>
+					<Text style={styles.buttonText}>{testing ? "发送中…" : "试听完成提示音"}</Text>
+				</Pressable>
 			</SettingsSection>
 
 			{status ? <Text style={[styles.status, failed && styles.statusFailed]}>{status}</Text> : null}
