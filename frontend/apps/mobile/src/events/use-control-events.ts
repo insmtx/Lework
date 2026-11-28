@@ -80,15 +80,22 @@ export function useControlEvents(
 		let source: EventSource | null = null;
 		let timer: ReturnType<typeof setTimeout> | null = null;
 		let attempt = 0;
+		// opened 标记已经成功建过流：重连成功后断线期间的增量已永久丢失，
+		// 必须重拉快照对账；首连由调用方挂载时的快照负责，不用重复拉。
+		let opened = false;
 
 		const clearTimer = () => {
 			if (timer) clearTimeout(timer);
 			timer = null;
 		};
 
+		// 先解开引用再 close：react-native-sse 的 close() 会同步派发 close 事件，
+		// 监听器看到 source 仍是自己就会 schedule()，于是每次主动重连都多排一个
+		// 1 秒后的重连，形成「连上就断」的自我维持循环（线上表现为每秒一次重连）。
 		const closeSource = () => {
-			source?.close();
+			const previous = source;
 			source = null;
+			previous?.close();
 		};
 
 		const schedule = () => {
@@ -121,6 +128,8 @@ export function useControlEvents(
 				if (source !== next) return;
 				attempt = 0;
 				setConnected(true);
+				if (opened) onResyncRef.current();
+				opened = true;
 			});
 			next.addEventListener("message", (message) => {
 				if (!message.data) return;

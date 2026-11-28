@@ -41,7 +41,7 @@ interface SessionPanelProps {
 	loadingMessages: boolean;
 	sending: boolean;
 	interrupting: boolean;
-	onSend: (text: string) => Promise<void>;
+	onSend: (text: string, files: File[]) => Promise<void>;
 	onInterrupt: () => Promise<void>;
 	onSubmitForm: (form: PendingForm, answer: Record<string, FormAnswerValue>) => Promise<void>;
 	onCancelForm: (form: PendingForm) => Promise<void>;
@@ -236,6 +236,7 @@ export function SessionPanel({
 				</div>
 			) : tab === "conversation" ? (
 				<Conversation
+					sessionID={session.id}
 					messages={messages}
 					permissions={permissions}
 					forms={forms}

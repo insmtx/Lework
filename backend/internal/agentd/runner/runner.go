@@ -255,6 +255,7 @@ func Capabilities() []string {
 		"form.cancel",
 		"file.list",
 		"file.read",
+		"file.write",
 		"pty.create",
 		"pty.attach",
 		"pty.write",

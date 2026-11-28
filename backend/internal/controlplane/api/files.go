@@ -3,8 +3,11 @@ package api
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	pathpkg "path"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -25,7 +28,28 @@ const (
 	// maxFileDownloadBytes 拦住误点日志或镜像文件的情况，避免把手机流量
 	// 和磁盘打满。
 	maxFileDownloadBytes int64 = 100 << 20
+
+	// fileUploadChunkBytes 是每次转给节点的块大小。512 KiB 经 base64 后约
+	// 700 KB，留出协议帧与慢速链路的余量。
+	fileUploadChunkBytes int64 = 512 << 10
+
+	// maxFileUploadBytes 与下载上限一致，避免一次上传把节点磁盘打满。
+	maxFileUploadBytes int64 = 100 << 20
 )
+
+// fileWriteParams 与 agentd/handler.FileWriteParams 对应；path 是单段文件名。
+type fileWriteParams struct {
+	Directory string `json:"directory"`
+	Path      string `json:"path"`
+	Offset    int64  `json:"offset"`
+	Data      string `json:"data"`
+}
+
+// fileWriteResult 是节点写文件的结果；path 可能因同名冲突被改写过。
+type fileWriteResult struct {
+	Path string `json:"path"`
+	Size int64  `json:"size"`
+}
 
 // windowsAbsPath 让 Windows 盘符路径通过绝对路径校验：控制面跑在 Linux
 // 上时 filepath.IsAbs 不认 C:\repo, 但节点本身是 Windows。
@@ -197,6 +221,134 @@ func (a *API) handleFileDownload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+
+// handleFileUpload 把浏览器 multipart 文件按块转给节点，控制面不在本地
+// 落盘，也不把整份文件读进内存。
+func (a *API) handleFileUpload(w http.ResponseWriter, r *http.Request) {
+	nodeID := r.PathValue("id")
+	directory := r.URL.Query().Get("directory")
+	if directory == "" {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", "directory is required")
+		return
+	}
+	if !absoluteDirectory(directory) {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", "directory must be absolute")
+		return
+	}
+	if !a.requireNode(w, r, nodeID) {
+		return
+	}
+	// multipart 有边界开销，允许 1 MiB 余量；真正的精确上限在流式读取时检查。
+	if r.ContentLength > maxFileUploadBytes+(1<<20) {
+		writeAPIError(w, http.StatusRequestEntityTooLarge, "file_too_large",
+			fmt.Sprintf("file exceeds %d bytes", maxFileUploadBytes))
+		return
+	}
+
+	reader, err := r.MultipartReader()
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", "multipart form required")
+		return
+	}
+	var part io.Reader
+	finalPath := ""
+	for {
+		next, nextErr := reader.NextPart()
+		if nextErr == io.EOF {
+			break
+		}
+		if nextErr != nil {
+			writeAPIError(w, http.StatusBadRequest, "invalid_request", "invalid multipart body")
+			return
+		}
+		name := sanitizeUploadName(next.FileName())
+		if name == "" {
+			_ = next.Close()
+			continue
+		}
+		finalPath = name
+		part = next
+		break
+	}
+	if part == nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", "file part is required")
+		return
+	}
+
+	buf := make([]byte, fileUploadChunkBytes)
+	var offset, total int64
+	for {
+		n, readErr := io.ReadFull(part, buf)
+		if n > 0 {
+			total += int64(n)
+			if total > maxFileUploadBytes {
+				writeAPIError(w, http.StatusRequestEntityTooLarge, "file_too_large",
+					fmt.Sprintf("file exceeds %d bytes", maxFileUploadBytes))
+				return
+			}
+			if err := a.writeUploadChunk(w, r, nodeID, directory, finalPath, offset, buf[:n], &finalPath); err != nil {
+				return
+			}
+			offset += int64(n)
+		}
+		if readErr == io.EOF || errors.Is(readErr, io.ErrUnexpectedEOF) {
+			break
+		}
+		if readErr != nil {
+			writeAPIError(w, http.StatusBadRequest, "invalid_request", "read upload body")
+			return
+		}
+	}
+	// 空文件没有 chunk，仍要让节点创建一个空文件。
+	if total == 0 {
+		if err := a.writeUploadChunk(w, r, nodeID, directory, finalPath, 0, nil, &finalPath); err != nil {
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, fileWriteResult{Path: finalPath, Size: total})
+}
+
+// writeUploadChunk sends one chunk and keeps finalPath in sync with the name
+// resolved by the agent on the first chunk.
+func (a *API) writeUploadChunk(
+	w http.ResponseWriter,
+	r *http.Request,
+	nodeID, directory, path string,
+	offset int64,
+	data []byte,
+	finalPath *string,
+) error {
+	raw, err := a.callAgent(r.Context(), nodeID, "file.write", fileWriteParams{
+		Directory: directory,
+		Path:      path,
+		Offset:    offset,
+		Data:      base64.StdEncoding.EncodeToString(data),
+	})
+	if err != nil {
+		a.writeAgentError(w, err)
+		return err
+	}
+	var result fileWriteResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		writeAPIError(w, http.StatusBadGateway, "agent_error", "agent returned invalid file result")
+		return err
+	}
+	if result.Path != "" {
+		*finalPath = result.Path
+	}
+	return nil
+}
+
+// sanitizeUploadName reduces a client filename to one path segment. Windows
+// separators are normalized first because filepath.Base on Linux treats them
+// as ordinary characters.
+func sanitizeUploadName(name string) string {
+	name = pathpkg.Base(strings.ReplaceAll(name, "\\", "/"))
+	if name == "" || name == "." || name == ".." || strings.ContainsRune(name, 0) {
+		return ""
+	}
+	return name
 }
 
 // bytes 把 utf-8 文本或 base64 内容还原成原始字节。

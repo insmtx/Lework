@@ -1649,3 +1649,122 @@ func TestFormCancelPassesOptionalMessage(t *testing.T) {
 		t.Fatalf("message = %q", oc.cancelFormMessage)
 	}
 }
+
+func TestFileWriteCreatesAndReturnsPath(t *testing.T) {
+	root := t.TempDir()
+	h := New(&fakeOpenCode{}, fakeSupervisor{}, WithWorkspaceRoots(root))
+
+	params, _ := json.Marshal(FileWriteParams{
+		Directory: root, Path: "a.txt", Data: base64.StdEncoding.EncodeToString([]byte("hello")),
+	})
+	result, err := h.Handle(context.Background(), "file.write", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := result.(FileWriteResult)
+	if !ok || got.Path != "a.txt" || got.Size != 5 {
+		t.Fatalf("result = %#v", result)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "a.txt"))
+	if err != nil || string(data) != "hello" {
+		t.Fatalf("file = %q err=%v", data, err)
+	}
+}
+
+func TestFileWriteRenamesConflict(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := New(&fakeOpenCode{}, fakeSupervisor{}, WithWorkspaceRoots(root))
+
+	params, _ := json.Marshal(FileWriteParams{
+		Directory: root, Path: "a.txt", Data: base64.StdEncoding.EncodeToString([]byte("new")),
+	})
+	result, err := h.Handle(context.Background(), "file.write", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := result.(FileWriteResult)
+	if got.Path != "a (1).txt" {
+		t.Fatalf("path = %q, want a (1).txt", got.Path)
+	}
+	old, _ := os.ReadFile(filepath.Join(root, "a.txt"))
+	renamed, _ := os.ReadFile(filepath.Join(root, "a (1).txt"))
+	if string(old) != "old" || string(renamed) != "new" {
+		t.Fatalf("old=%q renamed=%q", old, renamed)
+	}
+}
+
+func TestFileWriteAppendsChunkAndTruncates(t *testing.T) {
+	root := t.TempDir()
+	h := New(&fakeOpenCode{}, fakeSupervisor{}, WithWorkspaceRoots(root))
+
+	write := func(offset int64, data string) FileWriteResult {
+		params, _ := json.Marshal(FileWriteParams{
+			Directory: root, Path: "a.txt", Offset: offset,
+			Data: base64.StdEncoding.EncodeToString([]byte(data)),
+		})
+		result, err := h.Handle(context.Background(), "file.write", params)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result.(FileWriteResult)
+	}
+	write(0, "abcdef")
+	write(3, "XY")
+
+	data, _ := os.ReadFile(filepath.Join(root, "a.txt"))
+	if string(data) != "abcXY" {
+		t.Fatalf("file = %q, want abcXY", data)
+	}
+}
+
+func TestFileWriteRejectsBadPaths(t *testing.T) {
+	root := t.TempDir()
+	h := New(&fakeOpenCode{}, fakeSupervisor{}, WithWorkspaceRoots(root))
+
+	for _, path := range []string{"../a.txt", "sub/a.txt", `sub\a.txt`, ".", "..", ""} {
+		params, _ := json.Marshal(FileWriteParams{
+			Directory: root, Path: path, Data: base64.StdEncoding.EncodeToString([]byte("x")),
+		})
+		if _, err := h.Handle(context.Background(), "file.write", params); err == nil {
+			t.Fatalf("path %q: expected error", path)
+		}
+	}
+}
+
+func TestFileWriteRejectsSymlinkTarget(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(outside, []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "a.txt")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	h := New(&fakeOpenCode{}, fakeSupervisor{}, WithWorkspaceRoots(root))
+
+	params, _ := json.Marshal(FileWriteParams{
+		Directory: root, Path: "a.txt", Offset: 1,
+		Data: base64.StdEncoding.EncodeToString([]byte("x")),
+	})
+	if _, err := h.Handle(context.Background(), "file.write", params); err == nil {
+		t.Fatal("expected symlink rejection")
+	}
+	data, _ := os.ReadFile(outside)
+	if string(data) != "secret" {
+		t.Fatalf("outside file changed: %q", data)
+	}
+}
+
+func TestFileWriteRejectsOversizeChunk(t *testing.T) {
+	root := t.TempDir()
+	h := New(&fakeOpenCode{}, fakeSupervisor{}, WithWorkspaceRoots(root))
+
+	data := base64.StdEncoding.EncodeToString(make([]byte, (1<<20)+1))
+	params, _ := json.Marshal(FileWriteParams{Directory: root, Path: "a.bin", Data: data})
+	if _, err := h.Handle(context.Background(), "file.write", params); err == nil {
+		t.Fatal("expected oversize chunk error")
+	}
+}

@@ -423,16 +423,19 @@ describe("表单客户端", () => {
 		stubFetch(
 			new Response(
 				JSON.stringify([
-					{ id: "frm_1", sessionID: "ses_1", title: "Questions", fields: [{ key: "q0", type: "string" }] },
+					{
+						id: "frm_1",
+						sessionID: "ses_1",
+						title: "Questions",
+						fields: [{ key: "q0", type: "string" }],
+					},
 				]),
 				{ status: 200 },
 			),
 		);
 		const api = createApiClient({ baseUrl: "https://cp" });
 		const forms = await api.listPendingForms("node/1", "ses 1");
-		expect(fetchMock.mock.calls[0]?.[0]).toBe(
-			"https://cp/api/sessions/node%2F1/ses%201/forms",
-		);
+		expect(fetchMock.mock.calls[0]?.[0]).toBe("https://cp/api/sessions/node%2F1/ses%201/forms");
 		expect(forms[0]?.session_id).toBe("ses_1");
 		expect(forms[0]?.fields).toHaveLength(1);
 	});
@@ -464,5 +467,21 @@ describe("表单客户端", () => {
 			directory: "/work/foo",
 			answer: { q0: true },
 		});
+	});
+});
+
+describe("uploadFile", () => {
+	it("用 multipart 且不设置 JSON Content-Type", async () => {
+		stubFetch(new Response(JSON.stringify({ path: "a.txt", size: 3 }), { status: 200 }));
+		const api = createApiClient();
+		const form = new FormData();
+		form.append("file", new Blob(["abc"]), "a.txt");
+		await expect(api.uploadFile("n1", "/w/repo", form)).resolves.toEqual({
+			path: "a.txt",
+			size: 3,
+		});
+		expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/nodes/n1/files/upload?directory=%2Fw%2Frepo");
+		const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+		expect(init.headers).not.toHaveProperty("Content-Type");
 	});
 });

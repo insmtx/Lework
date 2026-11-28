@@ -1,17 +1,24 @@
-import type { Message, PendingPermission, Session } from "@lework/api";
+import { attachmentNote, type PendingPermission, type Session } from "@lework/api";
 import { router, useLocalSearchParams } from "expo-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	FlatList,
 	Modal,
 	Pressable,
 	RefreshControl,
+	ScrollView,
 	StyleSheet,
 	Text,
 	TextInput,
 	View,
 } from "react-native";
 
+import { createClient } from "../../../src/api/client";
+import {
+	type PickedAttachment,
+	pickAttachments,
+	uploadAttachments,
+} from "../../../src/composer/attachments";
 import { sessionRoute } from "../../../src/config";
 import { nodeColorSwatch } from "../../../src/nodes/colors";
 import { findProjectForSession, projectDirectoryOnNode } from "../../../src/projects/model";
@@ -39,8 +46,7 @@ function param(value: string | string[] | undefined): string {
 	return Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
 }
 
-// 用分隔组件而不是 contentContainerStyle.gap：虚拟列表的 spacer 也是直接子节点，
-// gap 会随渲染窗口变化凭空改变内容高度，贴底滚动就会被带着抖。
+// 消息之间留固定间隔；规则和子代理页一致，两处消息流的行距才一样。
 function MessageSeparator() {
 	return <View style={{ height: 12 }} />;
 }
@@ -269,6 +275,9 @@ export default function SessionScreen() {
 	}, [current, project, nodeID, nodeSessions.sessions]);
 
 	const [draft, setDraft] = useState("");
+	const [attachments, setAttachments] = useState<PickedAttachment[]>([]);
+	const [uploading, setUploading] = useState(false);
+	const sendingRef = useRef(false);
 	const [actionError, setActionError] = useState<string | null>(null);
 	const [switcherOpen, setSwitcherOpen] = useState(false);
 
@@ -296,7 +305,7 @@ export default function SessionScreen() {
 		follow: followLatest,
 		reset: resetFollow,
 		farFromBottom,
-	} = useAutoFollow<Message>({
+	} = useAutoFollow({
 		following,
 		setFollowing,
 		// 用户自己滚回底部也算看完当前内容，水位继续前进。
@@ -331,18 +340,48 @@ export default function SessionScreen() {
 
 	const submit = async () => {
 		const text = draft.trim();
-		if (!text) return;
+		if ((text === "" && attachments.length === 0) || sendingRef.current) return;
 		setActionError(null);
+		// 上传期间同步锁住发送按钮，避免重复点击把同一份附件传两遍。
+		sendingRef.current = true;
+		setUploading(true);
 		// 主动发言后回到最新一条，即使刚才正在往上翻历史。
 		followLatest();
 		try {
+			let outgoing = text;
+			if (attachments.length > 0) {
+				if (!settings) throw new Error("未连接");
+				if (!messageDirectory) throw new Error("会话没有工作目录");
+				const paths = await uploadAttachments(
+					createClient(settings),
+					nodeID,
+					messageDirectory,
+					attachments,
+				);
+				outgoing = text + attachmentNote(paths);
+			}
 			await runSend(
-				() => send(text),
-				() => setDraft(""),
+				() => send(outgoing),
+				() => {
+					setDraft("");
+					setAttachments([]);
+				},
 			);
 		} catch (caught) {
 			setActionError(caught instanceof Error ? caught.message : "failed to send");
+		} finally {
+			sendingRef.current = false;
+			setUploading(false);
 		}
+	};
+
+	const pickFiles = async () => {
+		const picked = await pickAttachments();
+		setAttachments((current) => [...current, ...picked]);
+	};
+
+	const removeAttachment = (index: number) => {
+		setAttachments((current) => current.filter((_, i) => i !== index));
 	};
 
 	const stop = async () => {
@@ -408,59 +447,64 @@ export default function SessionScreen() {
 			{actionError ? <Text style={styles.error}>{actionError}</Text> : null}
 
 			<View style={styles.messagesWrap}>
-				<FlatList
+				{/*
+				 * 不用 FlatList：没有 getItemLayout 时它按「已测量行的平均高度」估算
+				 * 没渲染的行生成 spacer，流式输出一涨平均高度就漂，spacer 成倍伸缩，
+				 * 内容被顶上顶下、下一帧再滚回来，就是执行中来回跳的来源。移动端
+				 * 本来只取最新一页（≤200 条），整页挂出来反而没有估算。
+				 */}
+				<ScrollView
 					ref={listRef}
 					style={styles.messages}
 					contentContainerStyle={styles.messagesContent}
-					data={visibleMessages}
-					keyExtractor={(message) => message.id}
-					// 字号与展示偏好变化时，行内内容必须一起重排；字号通过主题样式与 context 自动更新。
-					extraData={`${preferences.toolDisplay}:${preferences.processDisplay}`}
-					renderItem={({ item, index }) => (
-						<MessageRow
-							message={item}
-							isLastMessage={index === visibleMessages.length - 1}
-							nodeID={nodeID}
-							sessionID={sessionID}
-							directory={messageDirectory}
-						/>
-					)}
 					refreshControl={<RefreshControl refreshing={loading} onRefresh={refresh} />}
-					ItemSeparatorComponent={MessageSeparator}
 					maintainVisibleContentPosition={keepVisibleContent}
-					// 表单卡在 footer 里有输入框；默认的 never 会吞掉「键盘弹起后第一次点选项」。
+					// 表单卡里有输入框；默认的 never 会吞掉「键盘弹起后第一次点选项」。
 					keyboardShouldPersistTaps="handled"
 					{...listHandlers}
 					scrollEventThrottle={16}
-					ListFooterComponent={
-						forms.length + permissions.length > 0 ? (
-							<View style={styles.approvals}>
-								{forms.map((form) => (
-									<FormCard
-										key={form.id}
-										form={form}
-										onSubmit={(answer) => replyForm(form.id, answer)}
-										onCancel={() => cancelForm(form.id)}
-									/>
-								))}
-								{permissions.map((permission) => (
-									<ApprovalCard
-										key={permission.id}
-										permission={permission}
-										onReply={(decision, message) => reply(permission.id, decision, message)}
-									/>
-								))}
-							</View>
-						) : undefined
-					}
-					ListEmptyComponent={
-						loading ? undefined : (
+				>
+					{visibleMessages.length === 0 ? (
+						loading ? null : (
 							<View style={styles.center}>
 								<Text style={styles.hint}>No messages yet.</Text>
 							</View>
 						)
-					}
-				/>
+					) : (
+						visibleMessages.map((message, index) => (
+							<Fragment key={message.id}>
+								{index > 0 ? <MessageSeparator /> : null}
+								<MessageRow
+									message={message}
+									isLastMessage={index === visibleMessages.length - 1}
+									nodeID={nodeID}
+									sessionID={sessionID}
+									directory={messageDirectory}
+								/>
+							</Fragment>
+						))
+					)}
+
+					{forms.length + permissions.length > 0 ? (
+						<View style={styles.approvals}>
+							{forms.map((form) => (
+								<FormCard
+									key={form.id}
+									form={form}
+									onSubmit={(answer) => replyForm(form.id, answer)}
+									onCancel={() => cancelForm(form.id)}
+								/>
+							))}
+							{permissions.map((permission) => (
+								<ApprovalCard
+									key={permission.id}
+									permission={permission}
+									onReply={(decision, message) => reply(permission.id, decision, message)}
+								/>
+							))}
+						</View>
+					) : null}
+				</ScrollView>
 
 				{hasNewBelow || farFromBottom ? (
 					<View style={styles.newContentWrap} pointerEvents="box-none">
@@ -504,7 +548,10 @@ export default function SessionScreen() {
 				value={draft}
 				onChangeText={setDraft}
 				onSend={submit}
-				sending={sending}
+				sending={sending || uploading}
+				attachments={attachments}
+				onPickAttachments={() => void pickFiles()}
+				onRemoveAttachment={removeAttachment}
 			/>
 
 			<Modal

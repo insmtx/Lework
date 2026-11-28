@@ -123,6 +123,9 @@ export async function notifyCompletion(alert: CompletionAlert): Promise<void> {
 	if (permission.status !== "granted") return;
 
 	await Notifications.scheduleNotificationAsync({
+		// 与会话 ID 同名：服务端推送的 tag 也是会话 ID，Android 会把两条通知
+		// 折叠成一条，推送真正可达时不会重复弹两次。
+		identifier: alert.sessionID,
 		content: {
 			title: alert.title,
 			body: alert.body,

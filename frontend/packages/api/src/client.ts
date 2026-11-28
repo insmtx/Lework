@@ -9,14 +9,14 @@ import type {
 	FileDiff,
 	FileInfo,
 	FileReadResult,
+	FormAnswerValue,
+	FormField,
 	InterruptResult,
 	Message,
 	MessagePage,
 	NodeHealth,
 	NodeProject,
 	NodeView,
-	FormAnswerValue,
-	FormField,
 	OverviewNode,
 	PendingForm,
 	PendingPermission,
@@ -25,6 +25,7 @@ import type {
 	ProjectCreateResult,
 	ProjectSummary,
 	Session,
+	UploadedFile,
 } from "./types";
 
 /**
@@ -121,6 +122,7 @@ export interface ApiClient {
 	sessionDiff(node: string, session: string, directory: string): Promise<FileDiff[]>;
 	listFiles(node: string, directory: string, path: string): Promise<FileInfo[]>;
 	readFile(node: string, directory: string, path: string): Promise<FileReadResult>;
+	uploadFile(node: string, directory: string, form: FormData): Promise<UploadedFile>;
 	createPTY(
 		node: string,
 		session: string,
@@ -157,8 +159,8 @@ export function createApiClient(ctx: RequestContext = {}): ApiClient {
 
 	async function request<T>(path: string, init?: RequestInit): Promise<T> {
 		const headers: Record<string, string> = { ...resolveHeaders() };
-		// 只有带 body 的请求才声明 JSON，避免给 GET 附上没有意义的头。
-		if (init?.body) headers["Content-Type"] = "application/json";
+		// 只有字符串 body 才声明 JSON；FormData 的 boundary 必须由运行时生成。
+		if (typeof init?.body === "string") headers["Content-Type"] = "application/json";
 
 		const response = await fetch(`${baseUrl}${path}`, { ...init, headers });
 		if (!response.ok) {
@@ -340,6 +342,12 @@ export function createApiClient(ctx: RequestContext = {}): ApiClient {
 				`/api/nodes/${encodeURIComponent(node)}/files/content${query({ directory, path })}`,
 			),
 
+		uploadFile: (node, directory, form) =>
+			request<UploadedFile>(
+				`/api/nodes/${encodeURIComponent(node)}/files/upload${query({ directory })}`,
+				{ method: "POST", body: form as unknown as BodyInit },
+			),
+
 		createPTY: (node, session, directory, cols, rows) =>
 			request<PersistentTerminal>(
 				`/api/sessions/${encodeURIComponent(node)}/${encodeURIComponent(session)}/pty`,
@@ -431,9 +439,7 @@ export function createApiClient(ctx: RequestContext = {}): ApiClient {
 			const forms = await request<WireForm[]>(
 				`/api/nodes/${encodeURIComponent(node)}/forms${query({ directory })}`,
 			);
-			return forms.map((form) =>
-				normalizeForm(form, form.sessionID ?? "global", directory),
-			);
+			return forms.map((form) => normalizeForm(form, form.sessionID ?? "global", directory));
 		},
 
 		replyNodeForm: (node, formID, directory, answer) =>
