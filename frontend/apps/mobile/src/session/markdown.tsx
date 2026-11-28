@@ -1,5 +1,5 @@
 import { router } from "expo-router";
-import { memo, useCallback } from "react";
+import { memo, useCallback, useMemo } from "react";
 import { StyleSheet } from "react-native";
 import Markdown, { renderRules } from "react-native-markdown-display";
 
@@ -7,6 +7,7 @@ import { fileRoute } from "../config";
 import { type ColorScheme, darkTheme, lightTheme, type Theme } from "../theme/theme";
 import { useFontScale } from "../theme/use-theme";
 import { resolveFileLink } from "./file-links";
+import { withFilePathLinks } from "./path-link-rules";
 import { withSelectableText } from "./selectable-rules";
 
 // 长按选中复制：正文里的文本节点都来自默认规则，统一补 selectable。
@@ -140,7 +141,7 @@ function markdownStyles(scheme: ColorScheme, scale: number) {
  *
  * scheme 与全局字号倍率都参与 memo 比较：系统切换亮暗或用户改字号时，
  * 即使消息内容没变也要重新渲染。传了 nodeID 与 directory 时，指向项目
- * 文件的链接在应用内打开预览，其余链接仍交给系统浏览器。
+ * 文件的 Markdown 链接和裸路径在应用内打开预览，其余链接仍交给系统浏览器。
  */
 export const MarkdownBody = memo(function MarkdownBody({
 	content,
@@ -165,12 +166,19 @@ export const MarkdownBody = memo(function MarkdownBody({
 		},
 		[nodeID, directory],
 	);
+	// 先包裸路径再套 selectable：含路径的文本不能加 selectable，否则吞掉 onPress。
+	const rules = useMemo(() => {
+		if (!nodeID) return selectableRules;
+		const resolve = (token: string) => {
+			const target = resolveFileLink(token, directory ?? "");
+			return target ? fileRoute(nodeID, target.directory, target.path) : null;
+		};
+		return withSelectableText(
+			withFilePathLinks(renderRules, resolve, (route) => router.push(route)),
+		);
+	}, [nodeID, directory]);
 	return (
-		<Markdown
-			style={markdownStyles(scheme, scale)}
-			rules={selectableRules}
-			onLinkPress={onLinkPress}
-		>
+		<Markdown style={markdownStyles(scheme, scale)} rules={rules} onLinkPress={onLinkPress}>
 			{content}
 		</Markdown>
 	);
