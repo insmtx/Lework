@@ -115,12 +115,20 @@ export async function ensureNotificationPermission(): Promise<boolean> {
 /**
  * notifyCompletion 立即发一条本地完成提醒。
  *
- * 走 completions-v3 渠道，声音与震动交给系统渠道决定；没有权限时安静放弃，
+ * 走 completions-v4 渠道，声音与震动交给系统渠道决定；没有权限时安静放弃，
  * 不能用一次任务完成把用户拽去授权弹窗。
  */
 export async function notifyCompletion(alert: CompletionAlert): Promise<void> {
 	const permission = await Notifications.getPermissionsAsync();
 	if (permission.status !== "granted") return;
+
+	// 渠道可能在系统设置里被删掉，或被更早的版本以错误配置创建；每次发之前
+	// 补建一次。建渠道失败不能连提醒一起丢掉，系统会回落到默认渠道。
+	try {
+		await ensureAndroidChannels();
+	} catch {
+		// 忽略：发通知本身仍然有意义。
+	}
 
 	await Notifications.scheduleNotificationAsync({
 		// 与会话 ID 同名：服务端推送的 tag 也是会话 ID，Android 会把两条通知
@@ -134,4 +142,20 @@ export async function notifyCompletion(alert: CompletionAlert): Promise<void> {
 		},
 		trigger: { channelId: ANDROID_CHANNEL_ID_COMPLETIONS },
 	});
+}
+
+/**
+ * completionChannelState 返回「执行结果」渠道在系统里的声音状态。
+ *
+ * 试听结果只有「响/不响」两种可观察输出，其余原因都在系统设置里；把渠道
+ * 状态直接写回提示文案，用户不必再靠猜。
+ */
+export async function completionChannelState(): Promise<string> {
+	if (Platform.OS !== "android") return "仅 Android 使用通知渠道";
+	const channel = await Notifications.getNotificationChannelAsync(ANDROID_CHANNEL_ID_COMPLETIONS);
+	if (!channel) return "「执行结果」渠道不存在";
+	if (channel.importance === Notifications.AndroidImportance.NONE)
+		return "「执行结果」渠道已被关闭";
+	if (!channel.sound) return "「执行结果」渠道的声音已被关闭";
+	return "「执行结果」渠道正常";
 }

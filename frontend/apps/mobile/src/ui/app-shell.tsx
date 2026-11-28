@@ -89,25 +89,19 @@ export function AppShell({ children }: { children: ReactNode }) {
 		void ensureNotificationPermission();
 	}, [preferences.soundEnabled]);
 
-	// 本地完成提醒要判断会话是不是 subagent 子会话，但事件本身不带 parentID，
-	// 只能看总览里已投影的行；ref 在每次渲染后更新，事件到达时总能看到最新值。
+	// 本地提醒只负责让用户看见「跑完了」；是否响铃由通知处理器读取「声音
+	// 提醒」开关决定。关掉声音仍要留下横幅，与设置页文案保持一致。
 	const overviewNodesRef = useRef<OverviewNode[]>([]);
-	const alertCompletion = useCallback(
-		(event: ControlEvent) => {
-			if (!preferences.soundEnabled) return;
-			const node = overviewNodesRef.current.find(
-				(candidate) => candidate.node_id === event.node_id,
-			);
-			const child = node?.sessions.some(
-				(session) => session.session_id === event.session_id && session.parent_id,
-			);
-			// 子会话完成不响：主会话这一轮可能还在跑，提前提醒会误导。
-			if (child) return;
-			const alert = completionAlertFrom(event);
-			if (alert) void notifyCompletion(alert);
-		},
-		[preferences.soundEnabled],
-	);
+	const alertCompletion = useCallback((event: ControlEvent) => {
+		const node = overviewNodesRef.current.find((candidate) => candidate.node_id === event.node_id);
+		const child = node?.sessions.some(
+			(session) => session.session_id === event.session_id && session.parent_id,
+		);
+		// 子会话完成不响：主会话这一轮可能还在跑，提前提醒会误导。
+		if (child) return;
+		const alert = completionAlertFrom(event);
+		if (alert) void notifyCompletion(alert);
+	}, []);
 
 	const {
 		nodes: overviewNodes,

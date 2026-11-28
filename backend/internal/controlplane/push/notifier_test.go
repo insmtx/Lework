@@ -278,7 +278,7 @@ func TestNotifierPushesCompletion(t *testing.T) {
 	if msg.Data["kind"] != "done" {
 		t.Fatalf("data = %+v, want kind done", msg.Data)
 	}
-	if msg.ChannelID != "completions-v3" {
+	if msg.ChannelID != "completions-v4" {
 		t.Fatalf("channel = %q, want completions", msg.ChannelID)
 	}
 	if msg.Tag != "ses_1" {
@@ -310,7 +310,7 @@ func TestNotifierPushesFailure(t *testing.T) {
 	if msg.Data["kind"] != "failed" {
 		t.Fatalf("data = %+v, want kind failed", msg.Data)
 	}
-	if msg.ChannelID != "completions-v3" {
+	if msg.ChannelID != "completions-v4" {
 		t.Fatalf("channel = %q, want completions", msg.ChannelID)
 	}
 	if msg.Tag != "ses_1" {

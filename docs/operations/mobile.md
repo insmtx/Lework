@@ -120,18 +120,19 @@ App 没有底部 tab bar，也没有常驻导航栏。首页只做一件事：**
 审批请求与执行结束必须听得出区别，否则用户得先看屏幕才知道要不要立刻处理。
 
 - 两类事件各走一个 Android 通知渠道：`permissions-v3`（HIGH、两段急促震动、
-  `approval.wav`）与 `completions-v3`（DEFAULT、单段轻震、`done.wav`）。渠道 ID
+  `approval.wav`）与 `completions-v4`（HIGH、单段轻震、`done.wav`）。渠道 ID
   在服务端 `backend/internal/controlplane/push/notifier.go` 与客户端
-  `src/push/channels.ts` 各写一份，必须一致。
+  `src/push/channels.ts` 各写一份，必须一致。完成渠道用 HIGH 而不是 DEFAULT：
+  DEFAULT 只进通知栏，App 在前台时不会弹横幅。
 - 音频在 `assets/sounds/`，由 `pnpm --filter @lework/mobile run sounds` 生成。
   文件名必须同时出现在 `app.json` 的 `expo-notifications` 插件 `sounds` 数组里，
   否则渠道找不到资源会回落到系统默认音；`src/push/sounds.test.ts` 检查这三处对齐。
 - 改提示音或震动节奏**不能**删除同名渠道再重建：Android 会复活已删除的渠道并保留
-  旧设置，只有换新渠道 ID 才生效。旧 ID（`permissions` / `completions` 及两个
-  `-v2`）在启动时删除，避免系统设置里残留重复条目。
+  旧设置，只有换新渠道 ID 才生效。旧 ID（`permissions` / `completions`、两个
+  `-v2` 与 `completions-v3`）在启动时删除，避免系统设置里残留重复条目。
 - 应用内的「声音提醒」只控制 App 在前台时是否响铃；后台提示音跟随系统里的渠道
   设置，用户可以单独关掉任一渠道。
-- App 收到 `session.execution.succeeded/failed` 时会用 `completions-v3` 渠道发一条
+- App 收到 `session.execution.succeeded/failed` 时会用 `completions-v4` 渠道发一条
   本地通知；已登记推送的设备不重复响，缺 EAS 凭据、推送登记不上的构建仍能靠它
   听到完成提示。
 - 总览事件流（`useOverview` 传 `keepAlive`）在 App 切后台后不再主动断开：只要

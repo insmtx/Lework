@@ -7,9 +7,9 @@ import { APPROVAL_SOUND, COMPLETION_SOUND } from "./sounds";
 // 改声音只能换新 ID，不能删除后重建。
 export const ANDROID_CHANNEL_ID = "permissions-v3";
 
-// 执行结果走独立渠道：审批需要打断用户（HIGH + 急促震动），完成/失败只需要
-// 一条横幅。两件事混在一个渠道里，用户没法只关掉其中一个。
-export const ANDROID_CHANNEL_ID_COMPLETIONS = "completions-v3";
+// 执行结果走独立渠道：审批需要打断用户（HIGH + 急促震动），完成/失败也要
+// 一条立刻能看见的横幅。两件事混在一个渠道里，用户没法只关掉其中一个。
+export const ANDROID_CHANNEL_ID_COMPLETIONS = "completions-v4";
 
 /** LEGACY_CHANNEL_IDS 是旧版本渠道，启动时清掉，避免系统设置里出现重复条目。 */
 export const LEGACY_CHANNEL_IDS = [
@@ -17,6 +17,7 @@ export const LEGACY_CHANNEL_IDS = [
 	"completions",
 	"permissions-v2",
 	"completions-v2",
+	"completions-v3",
 ] as const;
 
 /**
@@ -59,9 +60,9 @@ export function androidChannels(): AndroidChannel[] {
 		{
 			id: ANDROID_CHANNEL_ID_COMPLETIONS,
 			name: "执行结果",
-			// DEFAULT 重要性有横幅但不打断屏幕；只靠声音区分「跑完了」。
+			// DEFAULT 只会进通知栏，前台不弹横幅；用户盯着屏幕时等于没有提示。
 			description: "会话执行完成或失败时播放完成提示音",
-			importance: "default",
+			importance: "high",
 			sound: COMPLETION_SOUND,
 			enableVibrate: true,
 			// 单段轻震：知道跑完了，但不至于像审批那样催人。

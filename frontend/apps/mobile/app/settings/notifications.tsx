@@ -3,6 +3,7 @@ import { Pressable, Text } from "react-native";
 
 import { createClient } from "../../src/api/client";
 import {
+	completionChannelState,
 	ensureNotificationPermission,
 	notifyCompletion,
 	registerForPush,
@@ -68,7 +69,14 @@ export default function NotificationsScreen() {
 				title: "执行完成",
 				body: "这是一条试听提醒",
 			});
-			note("已发送试听提醒；没听到声音请检查系统里的「执行结果」渠道。");
+			// 试听只有「响/不响」两种结果，把系统侧的实际状态一起报出来，
+			// 用户不用再猜是权限、渠道还是音量的问题。
+			const channelState = await completionChannelState();
+			note(
+				preferences.soundEnabled
+					? `已发送试听提醒（${channelState}）。没听到声音请检查系统通知音量与勿扰模式。`
+					: `「声音提醒」已关闭，本次只弹通知不响铃（${channelState}）。`,
+			);
 		} catch (error) {
 			note(error instanceof Error ? error.message : "发送试听提醒失败", true);
 		} finally {

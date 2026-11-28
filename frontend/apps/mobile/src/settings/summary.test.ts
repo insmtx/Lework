@@ -47,8 +47,9 @@ describe("describeReminder", () => {
 		expect(describeReminder(DEFAULT_PREFERENCES, true, false)).toBe("未连接");
 	});
 
-	it("推送关闭时不展示声音状态", () => {
-		expect(describeReminder(DEFAULT_PREFERENCES, false, true)).toBe("推送关闭");
+	it("推送关闭时仍展示声音开关", () => {
+		expect(describeReminder(DEFAULT_PREFERENCES, false, true)).toBe("推送关闭 · 声音开启");
+		expect(describeReminder(prefs, false, true)).toBe("推送关闭 · 声音关闭");
 	});
 
 	it("推送开启时附带声音开关", () => {

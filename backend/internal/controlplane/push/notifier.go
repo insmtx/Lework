@@ -37,7 +37,7 @@ const (
 	// 一致。Android 会复活同 ID 的已删除渠道并保留旧声音，所以改提示音时要
 	// 两端一起升级 ID，而不是在客户端重建同名渠道。
 	channelPermissions = "permissions-v3"
-	channelCompletions = "completions-v3"
+	channelCompletions = "completions-v4"
 )
 
 // DeviceSource 提供推送目标：某个节点上应该收到通知的设备。

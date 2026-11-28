@@ -50,8 +50,10 @@ export function describeReminder(
 	connected: boolean,
 ): string {
 	if (!connected) return "未连接";
-	if (!notifications) return "推送关闭";
-	return preferences.soundEnabled ? "推送开启 · 声音开启" : "推送开启 · 声音关闭";
+	// 声音开关与推送是两件事：推送登记失败时也要让用户看到声音是开还是关，
+	// 否则「没声音」会变成一个查不到的状态。
+	const sound = preferences.soundEnabled ? "声音开启" : "声音关闭";
+	return notifications ? `推送开启 · ${sound}` : `推送关闭 · ${sound}`;
 }
 
 /** describeServer 生成「服务器设置」菜单行的当前值。 */
