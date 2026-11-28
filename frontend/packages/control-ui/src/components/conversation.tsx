@@ -4,7 +4,7 @@ import { MarkdownRenderer } from "@lework/app-ui/components/common/MarkdownRende
 import { Button } from "@lework/ui/components/ui/button";
 import { Textarea } from "@lework/ui/components/ui/textarea";
 import { cn } from "@lework/ui/lib/utils";
-import { ArrowUp, ChevronUp, Loader2, MessageSquare, Square } from "lucide-react";
+import { ArrowUp, ChevronUp, Loader2, MessageSquare, Paperclip, Square, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { FormAnswerValue, Message, PendingForm, PermissionRequest } from "../types";
 import { FormCard } from "./form-card";
@@ -12,10 +12,11 @@ import { PermissionCard } from "./permission-card";
 import { ToolCardList } from "./tool-call/tool-card";
 
 interface ConversationProps {
+	sessionID: string;
 	messages: Message[];
 	permissions: PermissionRequest[];
 	forms: PendingForm[];
-	onSend: (text: string) => Promise<void>;
+	onSend: (text: string, files: File[]) => Promise<void>;
 	onInterrupt: () => Promise<void>;
 	onSubmitForm: (form: PendingForm, answer: Record<string, FormAnswerValue>) => Promise<void>;
 	onCancelForm: (form: PendingForm) => Promise<void>;
@@ -103,6 +104,7 @@ function MessageTurn({ message }: { message: Message }) {
 }
 
 export function Conversation({
+	sessionID,
 	messages,
 	permissions,
 	forms,
@@ -121,9 +123,16 @@ export function Conversation({
 	onLoadOlder,
 }: ConversationProps) {
 	const [text, setText] = useState("");
+	const [files, setFiles] = useState<File[]>([]);
 	const [error, setError] = useState<string | null>(null);
 	const scrollRef = useRef<HTMLDivElement>(null);
+	const fileInputRef = useRef<HTMLInputElement>(null);
 	const stickToBottom = useRef(true);
+
+	// 切换会话时丢弃已选附件，避免把上一个会话的文件传进新会话目录。
+	useEffect(() => {
+		setFiles([]);
+	}, [sessionID]);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: new items should scroll to bottom
 	useEffect(() => {
@@ -134,11 +143,12 @@ export function Conversation({
 
 	const submit = async () => {
 		const value = text.trim();
-		if (!value || sending) return;
+		if ((!value && files.length === 0) || sending) return;
 		setError(null);
 		try {
-			await onSend(value);
+			await onSend(value, files);
 			setText("");
+			setFiles([]);
 		} catch (caught) {
 			setError(caught instanceof Error ? caught.message : "Unable to send prompt");
 		}
@@ -222,6 +232,36 @@ export function Conversation({
 						</div>
 					) : null}
 					<div className="rounded-xl border bg-card p-2 shadow-sm focus-within:ring-2 focus-within:ring-ring/40">
+						<input
+							ref={fileInputRef}
+							type="file"
+							multiple
+							data-testid="attachment-input"
+							className="hidden"
+							onChange={(event) => {
+								setFiles((current) => [...current, ...Array.from(event.target.files ?? [])]);
+								event.target.value = "";
+							}}
+						/>
+						{files.length > 0 ? (
+							<div className="flex flex-wrap gap-1.5 px-1 pb-1">
+								{files.map((file, index) => (
+									<span
+										key={`${file.name}-${index}`}
+										className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-[11px] text-muted-foreground"
+									>
+										<span className="max-w-40 truncate">{file.name}</span>
+										<button
+											type="button"
+											aria-label={`Remove ${file.name}`}
+											onClick={() => setFiles((current) => current.filter((_, i) => i !== index))}
+										>
+											<X className="size-3" />
+										</button>
+									</span>
+								))}
+							</div>
+						) : null}
 						<Textarea
 							value={text}
 							onChange={(event) => setText(event.target.value)}
@@ -236,15 +276,28 @@ export function Conversation({
 							disabled={!nodeConnected}
 						/>
 						<div className="flex items-center justify-between gap-2 px-1">
-							<span className="text-[10px] text-muted-foreground">
-								{!nodeConnected ? (
-									"Node offline — cannot send"
-								) : !streamConnected ? (
-									"Live updates paused · sending still works"
-								) : (
-									<span className="hidden md:inline">Enter to send · Shift+Enter for newline</span>
-								)}
-							</span>
+							<div className="flex min-w-0 items-center gap-1">
+								<Button
+									variant="ghost"
+									size="icon-sm"
+									onClick={() => fileInputRef.current?.click()}
+									disabled={!nodeConnected}
+									aria-label="Attach files"
+								>
+									<Paperclip className="size-4" />
+								</Button>
+								<span className="truncate text-[10px] text-muted-foreground">
+									{!nodeConnected ? (
+										"Node offline — cannot send"
+									) : !streamConnected ? (
+										"Live updates paused · sending still works"
+									) : (
+										<span className="hidden md:inline">
+											Enter to send · Shift+Enter for newline
+										</span>
+									)}
+								</span>
+							</div>
 							<div className="flex gap-1.5">
 								<Button
 									variant="ghost"
@@ -264,7 +317,7 @@ export function Conversation({
 									size="icon"
 									className="size-9 md:size-8"
 									onClick={() => void submit()}
-									disabled={sending || !text.trim() || !nodeConnected}
+									disabled={sending || (!text.trim() && files.length === 0) || !nodeConnected}
 									aria-label="Send prompt"
 								>
 									{sending ? (
