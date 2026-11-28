@@ -6,6 +6,7 @@ vi.mock("react-native", () => ({ Text: "Text" }));
 
 import type { ASTNode, RenderRules } from "react-native-markdown-display";
 import { withFilePathLinks } from "./path-link-rules";
+import { withSelectableText } from "./selectable-rules";
 
 function node(content: string, type = "text"): ASTNode {
 	return {
@@ -132,5 +133,19 @@ describe("withFilePathLinks", () => {
 
 		expect(rules.fence).toBe(base.fence);
 		expect(rules.code_block).toBe(base.code_block);
+	});
+
+	it("先包路径再套 selectable：含路径节点不加 selectable", () => {
+		const rules = withSelectableText(withFilePathLinks(plainRules(), () => "/file/n1", vi.fn()));
+
+		const withPath = rules.text!(node("见 docs/a.md"), [], [], styles, undefined) as ReactElement<{
+			selectable?: boolean;
+		}>;
+		const plain = rules.text!(node("普通一句话"), [], [], styles, undefined) as ReactElement<{
+			selectable?: boolean;
+		}>;
+
+		expect(withPath.props.selectable).toBeUndefined();
+		expect(plain.props.selectable).toBe(true);
 	});
 });
