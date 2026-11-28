@@ -89,9 +89,13 @@ export function useControlEvents(
 			timer = null;
 		};
 
+		// 先解开引用再 close：react-native-sse 的 close() 会同步派发 close 事件，
+		// 监听器看到 source 仍是自己就会 schedule()，于是每次主动重连都多排一个
+		// 1 秒后的重连，形成「连上就断」的自我维持循环（线上表现为每秒一次重连）。
 		const closeSource = () => {
-			source?.close();
+			const previous = source;
 			source = null;
+			previous?.close();
 		};
 
 		const schedule = () => {
