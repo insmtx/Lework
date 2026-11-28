@@ -135,6 +135,25 @@ describe("withFilePathLinks", () => {
 		expect(rules.code_block).toBe(base.code_block);
 	});
 
+	it("多个路径与标点拆分后原文完整保留", () => {
+		const content = "（docs/a.md），另见 src/b.go。";
+		const rules = withFilePathLinks(plainRules(), (token) => `/file/${token}`, vi.fn());
+
+		const rendered = rules.text!(node(content), [], [], styles, undefined) as ReactElement<{
+			children?: ReactNode;
+		}>;
+
+		const parts = rendered.props.children as ReactNode[];
+		const text = parts
+			.map((part) =>
+				typeof part === "string"
+					? part
+					: (part as ReactElement<{ children?: ReactNode }>).props.children,
+			)
+			.join("");
+		expect(text).toBe(content);
+	});
+
 	it("先包路径再套 selectable：含路径节点不加 selectable", () => {
 		const rules = withSelectableText(withFilePathLinks(plainRules(), () => "/file/n1", vi.fn()));
 

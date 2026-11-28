@@ -23,10 +23,20 @@ describe("findFilePathSpans", () => {
 		expect(paths("见 docs/a.md.")).toEqual(["docs/a.md"]);
 	});
 
+	it("紧贴中文正文时只取路径，不吞中文", () => {
+		expect(paths("详见docs/a.md。")).toEqual(["docs/a.md"]);
+		expect(paths("路径是src/a.ts")).toEqual(["src/a.ts"]);
+		expect(paths("在docs/a.md中说明了")).toEqual(["docs/a.md"]);
+	});
+
+	it("两条路径紧贴中文时分别识别", () => {
+		expect(paths("见docs/a.md和docs/b.md")).toEqual(["docs/a.md", "docs/b.md"]);
+	});
+
 	it("绝对路径、Windows 盘符与 UNC 路径", () => {
 		expect(paths("/repo/docs/a.md")).toEqual(["/repo/docs/a.md"]);
+		expect(paths("/v1.2/docs/a.md")).toEqual(["/v1.2/docs/a.md"]);
 		expect(paths("../docs/a.md")).toEqual(["../docs/a.md"]);
-		expect(paths("~/docs/a.md")).toEqual(["~/docs/a.md"]);
 		expect(paths("C:\\repo\\docs\\a.md")).toEqual(["C:\\repo\\docs\\a.md"]);
 		expect(paths("\\\\box\\share\\a.md")).toEqual(["\\\\box\\share\\a.md"]);
 	});
@@ -51,6 +61,11 @@ describe("findFilePathSpans", () => {
 		expect(paths("config.yaml")).toEqual([]);
 		expect(paths("docs/README")).toEqual([]);
 		expect(paths("1.2.3/README.md")).toEqual([]);
+	});
+
+	it("解析不出来的路径不识别", () => {
+		expect(paths("~/docs/a.md")).toEqual([]);
+		expect(paths("\\repo\\a.md")).toEqual([]);
 	});
 
 	it("start/end 是原串下标，path 等于切片", () => {
