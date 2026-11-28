@@ -17,6 +17,13 @@ const TOKEN = /[A-Za-z0-9._~%+\-/\\:]+/g;
 const EXTENSION = /\.[A-Za-z0-9]{1,10}$/;
 const WINDOWS_DRIVE = /^[A-Za-z]:[\\/]/;
 const PATH_SEPARATOR = /[\\/]/;
+// 紧贴非 ASCII 字母时，只有这些开头才算新路径；否则是从中文路径中间切出来的残段。
+const PATH_START = /[A-Za-z0-9.~]/;
+
+function isNonAsciiLetter(char: string): boolean {
+	const code = char.codePointAt(0) ?? 0;
+	return code > 0x7f && /\p{L}/u.test(char);
+}
 
 function isValidPath(value: string): boolean {
 	if (!PATH_SEPARATOR.test(value)) {
@@ -79,6 +86,11 @@ export function findFilePathSpans(content: string): FilePathSpan[] {
 	const spans: FilePathSpan[] = [];
 	for (const match of content.matchAll(TOKEN)) {
 		const base = match.index ?? 0;
+		// 「设计/docs/a.md」会从 / 处切成 /docs/a.md；紧贴非 ASCII 字母、又
+		// 不是字母数字或 . ~ 开头的残段，直接丢掉，避免误当根路径。
+		if (base > 0 && isNonAsciiLetter(content[base - 1]) && !PATH_START.test(match[0][0])) {
+			continue;
+		}
 		for (const { offset, piece } of splitToken(match[0])) {
 			const path = piece.replace(/\.+$/, "");
 			if (!path || !isValidPath(path)) continue;

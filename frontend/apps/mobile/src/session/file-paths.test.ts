@@ -33,6 +33,13 @@ describe("findFilePathSpans", () => {
 		expect(paths("见docs/a.md和docs/b.md")).toEqual(["docs/a.md", "docs/b.md"]);
 	});
 
+	it("中文目录名被切断后的残段不误当根路径", () => {
+		expect(paths("设计/docs/a.md")).toEqual([]);
+		expect(paths("docs/设计/a.md")).toEqual([]);
+		expect(paths("说明docs/设计-v2/a.md")).toEqual([]);
+		expect(paths("见./docs/a.md")).toEqual(["./docs/a.md"]);
+	});
+
 	it("绝对路径、Windows 盘符与 UNC 路径", () => {
 		expect(paths("/repo/docs/a.md")).toEqual(["/repo/docs/a.md"]);
 		expect(paths("/v1.2/docs/a.md")).toEqual(["/v1.2/docs/a.md"]);
