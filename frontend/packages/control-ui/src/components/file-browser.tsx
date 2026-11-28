@@ -4,9 +4,7 @@ import { Button } from "@lework/ui/components/ui/button";
 import { useIsMobile } from "@lework/ui/hooks/use-mobile";
 import { cn } from "@lework/ui/lib/utils";
 import {
-	ChevronLeft,
 	ChevronRight,
-	Download,
 	FileCode2,
 	FileText,
 	Folder,
@@ -16,35 +14,12 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import { useControlApi } from "../context";
 import type { FileInfo, FileReadResult } from "../types";
+import { FilePreview } from "./file-preview";
+import { cleanName, isSafeRelative, joinPath, parentPath } from "./file-paths";
 
 interface FileBrowserProps {
 	nodeID: string;
 	directory: string;
-}
-
-function cleanName(path: string): string {
-	return path.endsWith("/") ? path.slice(0, -1) : path;
-}
-
-function isSafeRelative(path: string): boolean {
-	return path !== "" && !path.startsWith("/") && !path.split("/").includes("..");
-}
-
-function joinPath(base: string, name: string): string {
-	const clean = cleanName(name);
-	return base ? `${base}/${clean}` : clean;
-}
-
-function parentPath(path: string): string {
-	const parts = path.split("/").filter(Boolean);
-	parts.pop();
-	return parts.join("/");
-}
-
-function formatBytes(value: number): string {
-	if (value < 1024) return `${value} B`;
-	if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`;
-	return `${(value / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
 export function FileBrowser({ nodeID, directory }: FileBrowserProps) {
@@ -216,48 +191,10 @@ export function FileBrowser({ nodeID, directory }: FileBrowserProps) {
 							</p>
 						</div>
 					) : (
-						<div className="flex h-full flex-col">
-							<div className="flex items-center gap-2 border-b px-3 py-2">
-								{isMobile ? (
-									<Button
-										variant="ghost"
-										size="icon-xs"
-										onClick={() => setSelected(null)}
-										aria-label="Back to files"
-									>
-										<ChevronLeft className="size-4" />
-									</Button>
-								) : null}
-								<code className="min-w-0 flex-1 truncate text-xs">{selected.path}</code>
-								<span className="text-[10px] text-muted-foreground">
-									{formatBytes(selected.size)}
-								</span>
-								{selected.encoding === "base64" ? (
-									<a
-										className="inline-flex h-7 items-center gap-1 rounded-md border px-2 text-xs hover:bg-muted"
-										href={`data:application/octet-stream;base64,${selected.content}`}
-										download={selected.path.split("/").pop() || "download"}
-									>
-										<Download className="size-3" /> Download
-									</a>
-								) : null}
-							</div>
-							{selected.truncated ? (
-								<div className="border-b bg-amber-50 px-3 py-1.5 text-[11px] text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
-									Showing the first 512 KiB of this file.
-								</div>
-							) : null}
-							{selected.encoding === "utf-8" ? (
-								<pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words bg-background p-4 font-mono text-xs leading-relaxed">
-									{selected.content}
-								</pre>
-							) : (
-								<div className="m-auto p-6 text-center text-sm text-muted-foreground">
-									<FileText className="mx-auto mb-2 size-8 opacity-50" />
-									Binary file ({formatBytes(selected.size)})
-								</div>
-							)}
-						</div>
+						<FilePreview
+							file={selected}
+							onBack={isMobile ? () => setSelected(null) : undefined}
+						/>
 					)}
 				</div>
 			)}
