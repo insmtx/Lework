@@ -88,14 +88,14 @@ export default function ProjectFilesScreen() {
 	);
 
 	useEffect(() => {
-		if (!project || !nodeID || !canonical) return;
+		if (!projectKey || !nodeID || !canonical) return;
 		generation.current += 1;
 		setPath("");
 		setCache({});
 		setPending({});
 		setError(null);
 		void loadDir("");
-	}, [project?.key, nodeID, canonical, loadDir]);
+	}, [projectKey, nodeID, canonical, loadDir]);
 
 	const refresh = useCallback(() => {
 		if (!nodeID || !canonical) return;
