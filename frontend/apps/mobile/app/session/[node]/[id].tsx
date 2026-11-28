@@ -276,6 +276,8 @@ export default function SessionScreen() {
 
 	const [draft, setDraft] = useState("");
 	const [attachments, setAttachments] = useState<PickedAttachment[]>([]);
+	const [uploading, setUploading] = useState(false);
+	const sendingRef = useRef(false);
 	const [actionError, setActionError] = useState<string | null>(null);
 	const [switcherOpen, setSwitcherOpen] = useState(false);
 
@@ -338,8 +340,11 @@ export default function SessionScreen() {
 
 	const submit = async () => {
 		const text = draft.trim();
-		if (text === "" && attachments.length === 0) return;
+		if ((text === "" && attachments.length === 0) || sendingRef.current) return;
 		setActionError(null);
+		// 上传期间同步锁住发送按钮，避免重复点击把同一份附件传两遍。
+		sendingRef.current = true;
+		setUploading(true);
 		// 主动发言后回到最新一条，即使刚才正在往上翻历史。
 		followLatest();
 		try {
@@ -364,6 +369,9 @@ export default function SessionScreen() {
 			);
 		} catch (caught) {
 			setActionError(caught instanceof Error ? caught.message : "failed to send");
+		} finally {
+			sendingRef.current = false;
+			setUploading(false);
 		}
 	};
 
@@ -540,7 +548,7 @@ export default function SessionScreen() {
 				value={draft}
 				onChangeText={setDraft}
 				onSend={submit}
-				sending={sending}
+				sending={sending || uploading}
 				attachments={attachments}
 				onPickAttachments={() => void pickFiles()}
 				onRemoveAttachment={removeAttachment}
