@@ -9,6 +9,7 @@ import {
 	OrgAdminRoute,
 	PayrollRoute,
 	PendingView,
+	ProjectFilesView,
 	ProjectRoute,
 	ProjectsHubRoute,
 	SkillDetailRoute,
@@ -21,6 +22,7 @@ import {
 	consoleSessionPath,
 	createConsoleNavigation,
 	projectPath,
+	workspaceFilesPath,
 	workspacePath,
 } from "@lework/control-ui";
 import {
@@ -103,6 +105,10 @@ export function AppRoutes() {
 			<Route path={consoleRoutes.knowledge} element={<Navigate to={consoleRoutes.workbench} replace />} />
 
 			<Route path={consoleRoutes.workspaces} element={<WorkspacesRoute />} />
+			<Route
+				path={consoleRoutes.workspaces + "/:key/files"}
+				element={<ProjectFilesRoute />}
+			/>
 			<Route
 				path={consoleRoutes.workspaces + "/:key"}
 				element={<WorkspaceConsoleRoute />}
@@ -192,7 +198,19 @@ function WorkspacesRoute() {
 			<WorkspacesView
 				onOpenWorkspace={(key) => navigate(workspacePath(key))}
 				onOpenNodes={() => navigate(consoleRoutes.nodes)}
+				onBrowseWorkspace={(key) => navigate(workspaceFilesPath(key))}
 			/>
+		</ControlPlaneProvider>
+	);
+}
+
+function ProjectFilesRoute() {
+	const { key = "" } = useParams();
+	const navigate = useNavigate();
+
+	return (
+		<ControlPlaneProvider>
+			<ProjectFilesView projectKey={key} onBack={() => navigate(consoleRoutes.workspaces)} />
 		</ControlPlaneProvider>
 	);
 }
