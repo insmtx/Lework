@@ -1,4 +1,4 @@
-import type { PendingPermission, Session } from "@lework/api";
+import { attachmentNote, type PendingPermission, type Session } from "@lework/api";
 import { router, useLocalSearchParams } from "expo-router";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -13,6 +13,12 @@ import {
 	View,
 } from "react-native";
 
+import { createClient } from "../../../src/api/client";
+import {
+	type PickedAttachment,
+	pickAttachments,
+	uploadAttachments,
+} from "../../../src/composer/attachments";
 import { sessionRoute } from "../../../src/config";
 import { nodeColorSwatch } from "../../../src/nodes/colors";
 import { findProjectForSession, projectDirectoryOnNode } from "../../../src/projects/model";
@@ -269,6 +275,7 @@ export default function SessionScreen() {
 	}, [current, project, nodeID, nodeSessions.sessions]);
 
 	const [draft, setDraft] = useState("");
+	const [attachments, setAttachments] = useState<PickedAttachment[]>([]);
 	const [actionError, setActionError] = useState<string | null>(null);
 	const [switcherOpen, setSwitcherOpen] = useState(false);
 
@@ -331,18 +338,42 @@ export default function SessionScreen() {
 
 	const submit = async () => {
 		const text = draft.trim();
-		if (!text) return;
+		if (text === "" && attachments.length === 0) return;
 		setActionError(null);
 		// 主动发言后回到最新一条，即使刚才正在往上翻历史。
 		followLatest();
 		try {
+			let outgoing = text;
+			if (attachments.length > 0) {
+				if (!settings) throw new Error("未连接");
+				if (!messageDirectory) throw new Error("会话没有工作目录");
+				const paths = await uploadAttachments(
+					createClient(settings),
+					nodeID,
+					messageDirectory,
+					attachments,
+				);
+				outgoing = text + attachmentNote(paths);
+			}
 			await runSend(
-				() => send(text),
-				() => setDraft(""),
+				() => send(outgoing),
+				() => {
+					setDraft("");
+					setAttachments([]);
+				},
 			);
 		} catch (caught) {
 			setActionError(caught instanceof Error ? caught.message : "failed to send");
 		}
+	};
+
+	const pickFiles = async () => {
+		const picked = await pickAttachments();
+		setAttachments((current) => [...current, ...picked]);
+	};
+
+	const removeAttachment = (index: number) => {
+		setAttachments((current) => current.filter((_, i) => i !== index));
 	};
 
 	const stop = async () => {
@@ -510,6 +541,9 @@ export default function SessionScreen() {
 				onChangeText={setDraft}
 				onSend={submit}
 				sending={sending}
+				attachments={attachments}
+				onPickAttachments={() => void pickFiles()}
+				onRemoveAttachment={removeAttachment}
 			/>
 
 			<Modal

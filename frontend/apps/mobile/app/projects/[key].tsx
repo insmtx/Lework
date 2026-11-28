@@ -12,6 +12,7 @@ import {
 } from "react-native";
 
 import { createClient } from "../../src/api/client";
+import { type PickedAttachment, pickAttachments } from "../../src/composer/attachments";
 import { createSecureDraftStore } from "../../src/composer/secure-draft";
 import { newIdempotencyKey, sendToProject } from "../../src/composer/send";
 import {
@@ -70,6 +71,7 @@ export default function ProjectScreen() {
 	const hasScope = scopeProjectKey !== "" && scopeNodeID !== "";
 
 	const [draft, setDraft] = useState("");
+	const [attachments, setAttachments] = useState<PickedAttachment[]>([]);
 	const [sending, setSending] = useState(false);
 	const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -106,7 +108,8 @@ export default function ProjectScreen() {
 
 	const send = useCallback(async () => {
 		const text = draft.trim();
-		if (!settings || !project || !nodeID || !hasScope || text === "") return;
+		if (!settings || !project || !nodeID || !hasScope || (text === "" && attachments.length === 0))
+			return;
 
 		setSending(true);
 		try {
@@ -117,9 +120,11 @@ export default function ProjectScreen() {
 				projectDirectoryOnNode(project, nodeID),
 				text,
 				newIdempotencyKey(nodeID, "new"),
+				attachments,
 			);
 			await store.save({ projectKey: scopeProjectKey, nodeID: scopeNodeID }, "");
 			setDraft("");
+			setAttachments([]);
 			sessions.refresh();
 			router.push(`/session/${encodeURIComponent(nodeID)}/${encodeURIComponent(session.id)}`);
 		} catch (caught) {
@@ -127,7 +132,27 @@ export default function ProjectScreen() {
 		} finally {
 			setSending(false);
 		}
-	}, [settings, project, nodeID, hasScope, scopeProjectKey, scopeNodeID, draft, store, sessions]);
+	}, [
+		settings,
+		project,
+		nodeID,
+		hasScope,
+		scopeProjectKey,
+		scopeNodeID,
+		draft,
+		attachments,
+		store,
+		sessions,
+	]);
+
+	const pickFiles = useCallback(async () => {
+		const picked = await pickAttachments();
+		setAttachments((current) => [...current, ...picked]);
+	}, []);
+
+	const removeAttachment = useCallback((index: number) => {
+		setAttachments((current) => current.filter((_, i) => i !== index));
+	}, []);
 
 	const choosePrimary = useCallback(
 		(node: string) => {
@@ -245,6 +270,9 @@ export default function ProjectScreen() {
 				onChangeText={changeText}
 				onSend={send}
 				sending={sending}
+				attachments={attachments}
+				onPickAttachments={() => void pickFiles()}
+				onRemoveAttachment={removeAttachment}
 			/>
 
 			<Modal
