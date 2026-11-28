@@ -1,0 +1,85 @@
+import { describe, expect, it } from "vitest";
+
+import { findFilePathSpans } from "./file-paths";
+
+// 断言只关心片段文本时用这个，避免每个用例重复 start/end。
+function paths(content: string): string[] {
+	return findFilePathSpans(content).map((span) => span.path);
+}
+
+describe("findFilePathSpans", () => {
+	it("中文冒号紧贴路径时只取路径本身", () => {
+		expect(paths("设计文档写好了：docs/superpowers/specs/2026-11-28-a-design.md")).toEqual([
+			"docs/superpowers/specs/2026-11-28-a-design.md",
+		]);
+	});
+
+	it("同一段文本里的多个路径都识别", () => {
+		expect(paths("见 docs/a.md 和 src/b.go")).toEqual(["docs/a.md", "src/b.go"]);
+	});
+
+	it("中文标点、括号和句号不属于路径", () => {
+		expect(paths("（docs/a.md），另见 ./b.md。")).toEqual(["docs/a.md", "./b.md"]);
+		expect(paths("见 docs/a.md.")).toEqual(["docs/a.md"]);
+	});
+
+	it("紧贴中文正文时只取路径，不吞中文", () => {
+		expect(paths("详见docs/a.md。")).toEqual(["docs/a.md"]);
+		expect(paths("路径是src/a.ts")).toEqual(["src/a.ts"]);
+		expect(paths("在docs/a.md中说明了")).toEqual(["docs/a.md"]);
+	});
+
+	it("两条路径紧贴中文时分别识别", () => {
+		expect(paths("见docs/a.md和docs/b.md")).toEqual(["docs/a.md", "docs/b.md"]);
+	});
+
+	it("中文目录名被切断后的残段不误当根路径", () => {
+		expect(paths("设计/docs/a.md")).toEqual([]);
+		expect(paths("docs/设计/a.md")).toEqual([]);
+		expect(paths("说明docs/设计-v2/a.md")).toEqual([]);
+		expect(paths("见./docs/a.md")).toEqual(["./docs/a.md"]);
+	});
+
+	it("绝对路径、Windows 盘符与 UNC 路径", () => {
+		expect(paths("/repo/docs/a.md")).toEqual(["/repo/docs/a.md"]);
+		expect(paths("/v1.2/docs/a.md")).toEqual(["/v1.2/docs/a.md"]);
+		expect(paths("../docs/a.md")).toEqual(["../docs/a.md"]);
+		expect(paths("C:\\repo\\docs\\a.md")).toEqual(["C:\\repo\\docs\\a.md"]);
+		expect(paths("\\\\box\\share\\a.md")).toEqual(["\\\\box\\share\\a.md"]);
+	});
+
+	it("百分号编码保留在路径里", () => {
+		expect(paths("docs/My%20Plan.md")).toEqual(["docs/My%20Plan.md"]);
+	});
+
+	it("外链、协议相对 URL 与域名开头的 token 不识别", () => {
+		expect(paths("https://example.com/a.md")).toEqual([]);
+		expect(paths("//cdn.example.com/a.png")).toEqual([]);
+		expect(paths("example.com/a.md")).toEqual([]);
+		expect(paths("mailto:a@b.c")).toEqual([]);
+	});
+
+	it("不是文件的斜杠文本不识别", () => {
+		expect(paths("见 and/or 与 24/7")).toEqual([]);
+	});
+
+	it("无斜杠文件名、无扩展名、首段带点的相对路径不识别", () => {
+		expect(paths("README.md")).toEqual([]);
+		expect(paths("config.yaml")).toEqual([]);
+		expect(paths("docs/README")).toEqual([]);
+		expect(paths("1.2.3/README.md")).toEqual([]);
+	});
+
+	it("解析不出来的路径不识别", () => {
+		expect(paths("~/docs/a.md")).toEqual([]);
+		expect(paths("\\repo\\a.md")).toEqual([]);
+	});
+
+	it("start/end 是原串下标，path 等于切片", () => {
+		const content = "看 docs/a.md 吧";
+		const spans = findFilePathSpans(content);
+		expect(spans).toHaveLength(1);
+		expect(content.slice(spans[0].start, spans[0].end)).toBe(spans[0].path);
+		expect(spans[0].start).toBe(2);
+	});
+});
