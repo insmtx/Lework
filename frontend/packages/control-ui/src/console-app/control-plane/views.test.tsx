@@ -64,6 +64,50 @@ describe("WorkspacesView", () => {
 
 		expect(onOpenWorkspace).toHaveBeenCalledWith("proj-1");
 	});
+
+	it("opens the project file page from the secondary action", async () => {
+		mockClient.listProjects.mockResolvedValue([
+			{
+				key: "proj-1",
+				id: "p1",
+				canonical: "/work/demo",
+				nodes: [{ node_id: "node-1", online: true, last_seen: "2026-11-24T00:00:00Z" }],
+				last_seen: "2026-11-24T00:00:00Z",
+			},
+		]);
+		mockClient.listNodes.mockResolvedValue([{ id: "node-1", name: "本机", connected: true }]);
+		const onBrowseWorkspace = vi.fn();
+
+		render(
+			<WorkspacesView
+				onOpenWorkspace={vi.fn()}
+				onOpenNodes={vi.fn()}
+				onBrowseWorkspace={onBrowseWorkspace}
+			/>,
+		);
+
+		await screen.findByText("demo");
+		fireEvent.click(screen.getByText("文件"));
+
+		expect(onBrowseWorkspace).toHaveBeenCalledWith("proj-1");
+	});
+
+	it("hides the file action when the host does not wire it", async () => {
+		mockClient.listProjects.mockResolvedValue([
+			{
+				key: "proj-1",
+				id: "p1",
+				canonical: "/work/demo",
+				nodes: [{ node_id: "node-1", online: true, last_seen: "2026-11-24T00:00:00Z" }],
+				last_seen: "2026-11-24T00:00:00Z",
+			},
+		]);
+
+		render(<WorkspacesView onOpenWorkspace={vi.fn()} onOpenNodes={vi.fn()} />);
+
+		await screen.findByText("demo");
+		expect(screen.queryByText("文件")).toBeNull();
+	});
 });
 
 describe("PendingView", () => {
