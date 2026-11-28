@@ -1,6 +1,6 @@
 import type { FileInfo, ProjectSummary } from "@lework/api";
 import { describe, expect, it } from "vitest";
-import { pickBrowseNode, sortEntries } from "./tree";
+import { pickBrowseNode, shouldLoadDir, sortEntries } from "./tree";
 
 const project = (nodes: ProjectSummary["nodes"], primary?: string): ProjectSummary => ({
 	key: "repo",
@@ -29,6 +29,15 @@ describe("pickBrowseNode", () => {
 	it("全离线时返回 null", () => {
 		const repo = project([{ node_id: "n1", online: false, last_seen: "2026-11-10T00:00:00Z" }]);
 		expect(pickBrowseNode(repo, "n1", [])).toBeNull();
+	});
+});
+
+describe("shouldLoadDir", () => {
+	it("缓存里没有该目录时需要加载", () => {
+		expect(shouldLoadDir({}, "src")).toBe(true);
+	});
+	it("已缓存的目录不再请求", () => {
+		expect(shouldLoadDir({ src: [] }, "src")).toBe(false);
 	});
 });
 

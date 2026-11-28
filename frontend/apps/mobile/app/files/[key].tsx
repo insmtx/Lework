@@ -14,7 +14,7 @@ import {
 import { createClient } from "../../src/api/client";
 import { fileRoute } from "../../src/config";
 import { baseName, isSafeRelative, joinPath } from "../../src/files/paths";
-import { pickBrowseNode, sortEntries } from "../../src/files/tree";
+import { pickBrowseNode, shouldLoadDir, sortEntries } from "../../src/files/tree";
 import { projectDirectoryOnNode, projectDisplayName } from "../../src/projects/model";
 import type { Theme } from "../../src/theme/theme";
 import { useThemedStyles } from "../../src/theme/use-theme";
@@ -106,14 +106,21 @@ export default function ProjectFilesScreen() {
 		void loadDir(path);
 	}, [canonical, loadDir, nodeID, path]);
 
+	const goTo = useCallback(
+		(next: string) => {
+			setError(null);
+			setPath(next);
+			if (shouldLoadDir(cache, next)) void loadDir(next);
+		},
+		[cache, loadDir],
+	);
+
 	const enterDirectory = useCallback(
 		(entry: FileInfo) => {
 			if (!isSafeRelative(entry.path)) return;
-			const next = joinPath(path, entry.path);
-			setPath(next);
-			if (cache[next] === undefined) void loadDir(next);
+			goTo(joinPath(path, entry.path));
 		},
-		[cache, loadDir, path],
+		[goTo, path],
 	);
 
 	const openFile = useCallback(
@@ -184,13 +191,13 @@ export default function ProjectFilesScreen() {
 					showsHorizontalScrollIndicator={false}
 					contentContainerStyle={styles.crumbs}
 				>
-					<Pressable onPress={() => setPath("")}>
+					<Pressable onPress={() => goTo("")}>
 						<Text style={styles.crumb}>{projectName}</Text>
 					</Pressable>
 					{crumbs.map((crumb) => (
 						<View key={crumb.path} style={styles.crumbGroup}>
 							<Text style={styles.crumbSep}>›</Text>
-							<Pressable onPress={() => setPath(crumb.path)}>
+							<Pressable onPress={() => goTo(crumb.path)}>
 								<Text style={styles.crumb} numberOfLines={1}>
 									{crumb.segment}
 								</Text>

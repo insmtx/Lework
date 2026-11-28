@@ -14,6 +14,11 @@ export function pickBrowseNode(
 	return resolveTarget(project, onlineNodeIDs).nodeID;
 }
 
+/** shouldLoadDir 决定切换目录时是否要发请求；刷新清空缓存后必须重新加载。 */
+export function shouldLoadDir(cache: Record<string, FileInfo[]>, dir: string): boolean {
+	return cache[dir] === undefined;
+}
+
 /** sortEntries 让目录排在文件前，同级按路径稳定排序。 */
 export function sortEntries(entries: FileInfo[]): FileInfo[] {
 	return [...entries].sort((left, right) => {
