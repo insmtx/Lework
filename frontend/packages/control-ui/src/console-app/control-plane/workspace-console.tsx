@@ -6,6 +6,7 @@ import { useControlApi } from "../../context";
 import { Button } from "@lework/ui/components/ui/button";
 import { CloudOff, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { resolveProjectNode } from "./project-node";
 
 /**
  * WorkspaceConsole 把某个 OpenCode workspace 交给共享控制台。
@@ -64,16 +65,12 @@ export function WorkspaceConsole({
 		);
 	}
 
-	const nodeID =
-		project.primary_node_id ??
-		project.nodes.find((node) => node.online)?.node_id ??
-		project.nodes[0]?.node_id ??
-		null;
+	const resolved = resolveProjectNode(project);
 
 	return (
 		<ControlConsole
-			initialNodeID={nodeID}
-			initialDirectory={project.canonical}
+			initialNodeID={resolved?.node.node_id ?? null}
+			initialDirectory={resolved?.canonical}
 			initialSessionID={initialSessionID}
 		/>
 	);
